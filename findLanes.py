@@ -267,19 +267,67 @@ def process_image_OLD(image):
     # The original image will now be returned with semitransparent lane-lines overlaid on it.
     return combined_image
     
-def process_image(image):
+    
+def color_gradient_pipeline(img, sobel_kernel=3, s_thresh=(100, 255), sx_thresh=(120, 255)):
+    img = np.copy(img)
+    # Convert to HLS color space and separate the V channel
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
+    l_channel = hls[:,:,1]
+    s_channel = hls[:,:,2]
+    cv2.imwrite(os.path.join(OUT_DIR, "3.1-hls-.png"), hls) # TODO: REMOVE?
+
+    if False: # TODO: FIGURE OUT WHERE TO USE THESE!
+        # Sobel x
+        sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0, k_size=sobel_kernel) # Take the derivative in x
+        abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
+        scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
+        cv2.imwrite(os.path.join(OUT_DIR, "3.2-sobel-.png"), scaled_sobel) # TODO: REMOVE?
+        
+        # Threshold x gradient (magnitude of the gradient)
+        sxbinary = np.zeros_like(scaled_sobel)
+        sxbinary[(scaled_sobel > sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+        cv2.imwrite(os.path.join(OUT_DIR, "3.3-thresh_x_gradient-.png"), sxbinary) # TODO: REMOVE?
+    
+    # Threshold on S color channel
+    cv2.imwrite(os.path.join(OUT_DIR, "3.40-s_channel-.png"), s_channel) # TODO: REMOVE?
+    s_binary = np.zeros_like(s_channel)
+    s_binary[(s_channel > s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    write_binary_image(os.path.join(OUT_DIR, "3.41-s_binary-.png"), s_binary) # TODO: REMOVE?
+
+    # Stack each channel
+    # TODO: RESTORE
+    #color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary))
+    #write_binary_image(os.path.join(OUT_DIR, "3.5-color_binary-.png"), color_binary) # TODO: REMOVE?
+    #return color_binary
+    return s_binary
+    
+def process_image(image, mtx, dist, do_output=False, image_name=""):
     """
     Given an image (loaded from a file or a frame of a video), 
     process it to find the lane-lines and overlay them.
     
-    NOTE: This function expects full-color images (eg: the return value of cv2.imread().
+    image:      the full-color image (eg: from cv2.imread()).
+    mtx:        cameraMatrics from cv2.calibrateCamera()
+    dist:       distortion-coefficients from cv2.calibrateCamera()
+    do_output:  whether to output images of the various steps. Intended to be done doing
+                for the static images but not for the videos (since there are a ton of frames).
+    image_name: optional. Recommended when do_output is true. This will be used for debug
+                and output-filenames related to this image.
     """
-
-    # TODO: IMPLEMENT HERE!!
     
+    # == Use color transforms, gradients, etc., to create a thresholded binary image. ==
+    color_binary = color_gradient_pipeline(image)
+    if do_output == True:
+        print("         Saving progress image for "+image_name+"...")
+        write_binary_image(os.path.join(OUT_DIR, "3_color-gradient_"+image_name+".png"), color_binary)
+
     # REMAINING PROJECT STEPS:
-    # Use color transforms, gradients, etc., to create a thresholded binary image.
     # Apply a perspective transform to rectify binary image ("birds-eye view").
+    undist = cv2.undistort(color_binary, mtx, dist, None, mtx)
+    #gray = cv2.cvtColor(undist,cv2.COLOR_RGB2GRAY)
+    #ret, corners = cv2.findChessboardCorners(gray, (2,2), None)
+    #if(ret == True):
+        
     # Detect lane pixels and fit to find the lane boundary.
     # Determine the curvature of the lane and vehicle position with respect to center.
     # Warp the detected lane boundaries back onto the original image.
@@ -289,7 +337,14 @@ def process_image(image):
     
     return image
 
-
+def write_binary_image(file_name, img):
+    """
+    Since we use binary images (1's, 0's a lot) but if we save them they look all-black (imwrite seems to
+    expect them to be 0-255 still, this will output them as black and white.
+    """
+    output = img.copy()
+    output[(img > 0)] = 255
+    cv2.imwrite(file_name, output)
 
 
 ###############################################################
@@ -350,15 +405,16 @@ print("Done calibrating camera.")
 # Process and save each file that exists in the input directory.
 print("Processing static images...")
 files = os.listdir(IN_DIR)
-for fileIndex in range(len(files)):
-    fullFilePath = os.path.join(IN_DIR, files[fileIndex])
+for file_index in range(len(files)):
+    fullFilePath = os.path.join(IN_DIR, files[file_index])
     
     # All of the image-processing is done in this call
+    print("     Processing "+fullFilePath+"...")
     image = mpimg.imread(fullFilePath)
-    image = process_image(image)
+    image = process_image(image, mtx, dist, do_output=True, image_name=files[file_index])
     
     # Take the processed image and save it to the output directory.
-    saveFile = os.path.join(OUT_DIR, files[fileIndex])
+    saveFile = os.path.join(OUT_DIR, files[file_index])
     plt.imsave(saveFile, image)
     
     # The files are already saved... also show the image in the notebook.
