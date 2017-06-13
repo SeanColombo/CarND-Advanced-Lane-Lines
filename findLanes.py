@@ -268,25 +268,24 @@ def process_image_OLD(image):
     return combined_image
     
     
-def color_gradient_pipeline(img, sobel_kernel=3, s_thresh=(100, 255), sx_thresh=(120, 255)):
+def color_gradient_pipeline(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     img = np.copy(img)
     # Convert to HLS color space and separate the V channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
     l_channel = hls[:,:,1]
     s_channel = hls[:,:,2]
-    cv2.imwrite(os.path.join(OUT_DIR, "3.1-hls-.png"), hls) # TODO: REMOVE?
+    cv2.imwrite(os.path.join(OUT_DIR, "3.10-hls-.png"), hls) # TODO: REMOVE?
 
-    if False: # TODO: FIGURE OUT WHERE TO USE THESE!
-        # Sobel x
-        sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0, k_size=sobel_kernel) # Take the derivative in x
-        abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
-        scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
-        cv2.imwrite(os.path.join(OUT_DIR, "3.2-sobel-.png"), scaled_sobel) # TODO: REMOVE?
-        
-        # Threshold x gradient (magnitude of the gradient)
-        sxbinary = np.zeros_like(scaled_sobel)
-        sxbinary[(scaled_sobel > sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-        cv2.imwrite(os.path.join(OUT_DIR, "3.3-thresh_x_gradient-.png"), sxbinary) # TODO: REMOVE?
+    # Sobel x
+    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0) # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
+    cv2.imwrite(os.path.join(OUT_DIR, "3.20-sobel-.png"), scaled_sobel) # TODO: REMOVE?
+    
+    # Threshold x gradient (magnitude of the gradient)
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel > sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+    write_binary_image(os.path.join(OUT_DIR, "3.30-thresh_x_gradient-.png"), sxbinary) # TODO: REMOVE?
     
     # Threshold on S color channel
     cv2.imwrite(os.path.join(OUT_DIR, "3.40-s_channel-.png"), s_channel) # TODO: REMOVE?
@@ -295,11 +294,14 @@ def color_gradient_pipeline(img, sobel_kernel=3, s_thresh=(100, 255), sx_thresh=
     write_binary_image(os.path.join(OUT_DIR, "3.41-s_binary-.png"), s_binary) # TODO: REMOVE?
 
     # Stack each channel
-    # TODO: RESTORE
-    #color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary))
-    #write_binary_image(os.path.join(OUT_DIR, "3.5-color_binary-.png"), color_binary) # TODO: REMOVE?
-    #return color_binary
-    return s_binary
+    # Just for seeing the different contributions in different colors
+    color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary))
+    write_binary_image(os.path.join(OUT_DIR, "3.45-stacked_binaries-.png"), color_binary) # TODO: REMOVE?
+    
+    combined_binary = np.zeros_like(sxbinary)
+    combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
+    write_binary_image(os.path.join(OUT_DIR, "3.50-color_binary-.png"), combined_binary) # TODO: REMOVE?
+    return combined_binary
     
 def process_image(image, mtx, dist, do_output=False, image_name=""):
     """
@@ -321,20 +323,59 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
         print("         Saving progress image for "+image_name+"...")
         write_binary_image(os.path.join(OUT_DIR, "3_color-gradient_"+image_name+".png"), color_binary)
 
-    # REMAINING PROJECT STEPS:
+    # == Perspective Transform ==
     # Apply a perspective transform to rectify binary image ("birds-eye view").
-    undist = cv2.undistort(color_binary, mtx, dist, None, mtx)
-    #gray = cv2.cvtColor(undist,cv2.COLOR_RGB2GRAY)
-    #ret, corners = cv2.findChessboardCorners(gray, (2,2), None)
-    #if(ret == True):
-        
+    # WE WILL FIND A TRAPAZOIDAL AREA OF INTEREST AND USE IT FOR THE PERSPECTIVE TRANSFORM!
+    # We're defining a trapazoidal area at the center/bottom of the
+    # screen, in which to look. triangleHeight and trapazoidTopWidth are
+    # the parameters to manually tune, to control the size of the trapazoid.
+    imgshape = color_binary.shape
+    imgHeight = imgshape[0]
+    imgWidth = imgshape[1]
+    PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
+    triangleHeight = imgHeight * 0.44 # guess/test/revised to tune this number
+    # How wide the top of the trapezoid will be (got this by tweaking until "straight lines" images transformed to be parallel.
+    # This was definitely guess/test/revise and may not be appropriate for all cameras.
+    trapazoidTopWidth = imgWidth * 0.35
+    xOffset = (trapazoidTopWidth / 2) # dist that trapazoid top points will be from vertical center-line
+    # Trig to figure out the points in the trapazoid based on the configuration & image size:
+    theta = math.atan( triangleHeight / (imgWidth/2) )
+    topLeftX = ( (imgWidth/2) - xOffset )
+    topLeftY = imgHeight - (topLeftX * math.tan(theta))
+    topRightX = ( (imgWidth/2) + xOffset )
+    topRightY = topLeftY
+    src = np.array([[
+        (topLeftX, topLeftY), # top left
+        (topRightX, topRightY), # top right
+        (imgWidth, imgHeight-PADDING_FROM_BOTTOM), # bottom right
+        (0, imgHeight-PADDING_FROM_BOTTOM) # bottom left
+    ]], dtype=np.float32)
+    # Define 4 destination points dst = np.float32([[,],[,],[,],[,]])
+    # Basically fit the destination inside a square space in the image, inside of a certain amount of padding
+    PADDING = 0 # TODO: EXPERIMENT GETTING THIS TO 0
+    dst = np.float32([[PADDING, PADDING], # top left
+                      [imgWidth-PADDING, PADDING], # top right
+                      [imgWidth-PADDING, imgHeight-PADDING], # bottom right
+                      [PADDING, imgHeight-PADDING]]) # bottom left
+    # Use cv2.getPerspectiveTransform() to get M, the transform matrix
+    M = cv2.getPerspectiveTransform(src, dst)
+    #Minv = cv2.getPerspectiveTransform(dst, src)
+    # Use cv2.warpPerspective() to warp your image to a top-down view
+    warped = cv2.warpPerspective(color_binary, M, (imgWidth, imgHeight), flags=cv2.INTER_LINEAR)
+    write_binary_image(os.path.join(OUT_DIR, "4_warped_"+image_name+".png"), warped)
+
+    
+    
+
+
+    # REMAINING PROJECT STEPS:
     # Detect lane pixels and fit to find the lane boundary.
     # Determine the curvature of the lane and vehicle position with respect to center.
     # Warp the detected lane boundaries back onto the original image.
     # Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
 
 
-    
+
     return image
 
 def write_binary_image(file_name, img):
