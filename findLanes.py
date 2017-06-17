@@ -7,6 +7,7 @@ from moviepy.editor import VideoFileClip
 import numpy as np
 import operator
 import os
+import pickle
 
 """
 This script is for advanced lane-finding for Project 4 for Udacity's Self-Driving Car Engineering Nanodegree.
@@ -15,8 +16,9 @@ The initial flow will be based largely off of the Project 1 lanefinding video-pr
 distortion-removal, perspective-transforms, and various gradients and thresholdings we learned in Lesson 14.
 
 TODO:
-    - Output the source-points trapazoid on input images to see what region we're considering... it might be too big.
+    - Figure out why this plot of points & curve-fitting is almost identical for all images even though images look very different in other steps.
     - Re-write the lane-curvature detection (I think just rewrite to use second method but leave original there but turned off, so I can demostrate it in writeup)
+    - ? Should we use region_of_interest() fairly early in the pipeline to make all of the work considerably simpler? Would need to do this on a different run than where we generate the debug images because we'd lose a lot of context that is useful in showing what those steps are doing.
     - Tweak things exhaustively until the lane-detection is pretty good
         - Add sanity-check: make sure they're roughly parallel
         - Add santiy-check: make sure the curvatures are realistic based on the highway standards
@@ -28,23 +30,23 @@ TODO:
     - Do the writeup
 """
 
-def grayscale(img):
-    """Applies the Grayscale transform
-    This will return an image with only one color channel
-    but NOTE: to see the returned image as grayscale
-    (assuming your grayscaled image is called 'gray')
-    you should call plt.imshow(gray, cmap='gray')"""
-    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # Or use BGR2GRAY if you read an image with cv2.imread()
-    # return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+# def grayscale(img):
+    # """Applies the Grayscale transform
+    # This will return an image with only one color channel
+    # but NOTE: to see the returned image as grayscale
+    # (assuming your grayscaled image is called 'gray')
+    # you should call plt.imshow(gray, cmap='gray')"""
+    # return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    ## Or use BGR2GRAY if you read an image with cv2.imread()
+    ## return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-def canny(img, low_threshold, high_threshold):
-    """Applies the Canny transform"""
-    return cv2.Canny(img, low_threshold, high_threshold)
+# def canny(img, low_threshold, high_threshold):
+    # """Applies the Canny transform"""
+    # return cv2.Canny(img, low_threshold, high_threshold)
 
-def gaussian_blur(img, kernel_size):
-    """Applies a Gaussian Noise kernel"""
-    return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
+# def gaussian_blur(img, kernel_size):
+    # """Applies a Gaussian Noise kernel"""
+    # return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
 
 def region_of_interest(img, vertices):
     """
@@ -70,19 +72,19 @@ def region_of_interest(img, vertices):
     masked_image = cv2.bitwise_and(img, mask)
     return masked_image
 
-
+"""
 def draw_lines(img, lines, lane_min_y, lane_max_y, origImg, color=[255, 0, 0], thickness=5):
-    """
-    Separates line segments by their 
-    slope ((y2-y1)/(x2-x1)) to decide which segments are part of the left
-    line vs. the right line.  Then, averages the position of each of 
-    the lines and extrapolate to the top and bottom of the lane.
     
-    This function draws `lines` with `color` and `thickness`.
-    Lines are drawn on the image inplace (mutates the image).
-    The results are opaque, transparency is applied (with weighted_img) to the
-    results of the hough_lines function.
-    """
+    # Separates line segments by their 
+    # slope ((y2-y1)/(x2-x1)) to decide which segments are part of the left
+    # line vs. the right line.  Then, averages the position of each of 
+    # the lines and extrapolate to the top and bottom of the lane.
+    
+    # This function draws `lines` with `color` and `thickness`.
+    # Lines are drawn on the image inplace (mutates the image).
+    # The results are opaque, transparency is applied (with weighted_img) to the
+    # results of the hough_lines function.
+    
     
     # If we set too small of a target area, or otherwise poorly tuned our parameters, it's
     # possible that there were no lines found.
@@ -170,14 +172,14 @@ def draw_lines(img, lines, lane_min_y, lane_max_y, origImg, color=[255, 0, 0], t
         cv2.line(img, (lowLeftPoint[0], lowLeftPoint[1]), (highLeftPoint[0], highLeftPoint[1]), color, thickness)
     if(numRightLines > 0):
         cv2.line(img, (lowRightPoint[0], lowRightPoint[1]), (highRightPoint[0], highRightPoint[1]), color, thickness)
-    
+
 def extrapolateLineToMinMaxY(p1, p2, min_y, max_y):
-    """
-    Given points p1 and p2, will return new points of a line that go between min_y and max_y. This
-    will be used so that our lane-lines are extrapolated to the entire mask-area that we were looking at.
+
+    # Given points p1 and p2, will return new points of a line that go between min_y and max_y. This
+    # will be used so that our lane-lines are extrapolated to the entire mask-area that we were looking at.
     
-    The return-value will be a list containing two lists: one for each point of the new line.
-    """
+    # The return-value will be a list containing two lists: one for each point of the new line.
+
     x1 = p1[0]
     y1 = p1[1]
     x2 = p2[0]
@@ -190,16 +192,15 @@ def extrapolateLineToMinMaxY(p1, p2, min_y, max_y):
     max_x = ((max_y - yInterceptOfLine) / slope)
 
     return [ [min_x, min_y], [max_x, max_y] ]
-    
 
 def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap, min_y, max_y):
-    """
-    `img` should be the output of a Canny transform.
+
+    # `img` should be the output of a Canny transform.
         
-    Returns an image with hough lines drawn.  This has been modified from its initial state
-    to extrapolate those lines to extend between min_y and max_y (eg: to fill the height of
-    the lane).
-    """
+    # Returns an image with hough lines drawn.  This has been modified from its initial state
+    # to extrapolate those lines to extend between min_y and max_y (eg: to fill the height of
+    # the lane).
+
     lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len, maxLineGap=max_line_gap)
     line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
     draw_lines(line_img, lines, min_y, max_y, img)
@@ -208,19 +209,17 @@ def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap, min_y, m
 # Python 3 has support for cool math symbols. I don't advise using these :P this function was
 # provided in an Udacity lesson though.
 def weighted_img(img, initial_img, a=0.8, ß=1., λ=0.):
-    """
-    `img` is the output of the hough_lines(), An image with lines drawn on it.
-    Should be a blank image (all black) with lines drawn on it.
+    # `img` is the output of the hough_lines(), An image with lines drawn on it.
+    # Should be a blank image (all black) with lines drawn on it.
     
-    `initial_img` should be the image before any processing.
+    # `initial_img` should be the image before any processing.
     
-    The result image is computed as follows:
+    # The result image is computed as follows:
     
-    initial_img * a + img * ß + λ
-    NOTE: initial_img and img must be the same shape!
-    """
-    return cv2.addWeighted(initial_img, a, img, ß, λ)
+    # initial_img * a + img * ß + λ
+    # NOTE: initial_img and img must be the same shape!
 
+    return cv2.addWeighted(initial_img, a, img, ß, λ)
 
 # Given an image (eg: loaded from a file or a video-frame)
 # processes it to overlay lane-lines on top of the image
@@ -279,14 +278,98 @@ def process_image_OLD(image):
 
     # The original image will now be returned with semitransparent lane-lines overlaid on it.
     return combined_image
+"""    
+
     
     
     
+
+def window_mask(width, height, img_ref, center,level):
+    output = np.zeros_like(img_ref)
+    output[int(img_ref.shape[0]-(level+1)*height):int(img_ref.shape[0]-level*height),max(0,int(center-width/2)):min(int(center+width/2),img_ref.shape[1])] = 1
+    return output
+
+def find_window_centroids(warped, window_width, window_height, margin):
     
+    window_centroids = [] # Store the (left,right) window centroid positions per level
+    window = np.ones(window_width) # Create our window template that we will use for convolutions
     
+    # First find the two starting positions for the left and right lane by using np.sum to get the vertical image slice
+    # and then np.convolve the vertical image slice with the window template 
     
+    # Sum quarter bottom of image to get slice, could use a different ratio
+    l_sum = np.sum(warped[int(3*warped.shape[0]/4):,:int(warped.shape[1]/2)], axis=0)
+    l_center = np.argmax(np.convolve(window,l_sum))-window_width/2
+    r_sum = np.sum(warped[int(3*warped.shape[0]/4):,int(warped.shape[1]/2):], axis=0)
+    r_center = np.argmax(np.convolve(window,r_sum))-window_width/2+int(warped.shape[1]/2)
     
+    # Add what we found for the first layer
+    window_centroids.append((l_center,r_center))
     
+    # Go through each layer looking for max pixel locations
+    for level in range(1,(int)(warped.shape[0]/window_height)):
+	    # convolve the window into the vertical slice of the image
+	    image_layer = np.sum(warped[int(warped.shape[0]-(level+1)*window_height):int(warped.shape[0]-level*window_height),:], axis=0)
+	    conv_signal = np.convolve(window, image_layer)
+	    # Find the best left centroid by using past left center as a reference
+	    # Use window_width/2 as offset because convolution signal reference is at right side of window, not center of window
+	    offset = window_width/2
+	    l_min_index = int(max(l_center+offset-margin,0))
+	    l_max_index = int(min(l_center+offset+margin,warped.shape[1]))
+	    l_center = np.argmax(conv_signal[l_min_index:l_max_index])+l_min_index-offset
+	    # Find the best right centroid by using past right center as a reference
+	    r_min_index = int(max(r_center+offset-margin,0))
+	    r_max_index = int(min(r_center+offset+margin,warped.shape[1]))
+	    r_center = np.argmax(conv_signal[r_min_index:r_max_index])+r_min_index-offset
+	    # Add what we found for that layer
+	    window_centroids.append((l_center,r_center))
+
+    return window_centroids
+    
+
+def curvatures_via_convolutions(binary_warped, do_output=False, image_name=""):
+    # window settings
+    window_width = 50 
+    window_height = 100 # Break image into 9 vertical layers since image height is 720
+    margin = 100 # How much to slide left and right for searching
+
+    window_centroids = find_window_centroids(binary_warped, window_width, window_height, margin)
+
+    # If we found any window centers
+    if len(window_centroids) > 0:
+
+        # Points used to draw all the left and right windows
+        l_points = np.zeros_like(binary_warped)
+        r_points = np.zeros_like(binary_warped)
+
+        # Go through each level and draw the windows 	
+        for level in range(0,len(window_centroids)):
+            # Window_mask is a function to draw window areas
+            l_mask = window_mask(window_width,window_height,binary_warped,window_centroids[level][0],level)
+            r_mask = window_mask(window_width,window_height,binary_warped,window_centroids[level][1],level)
+            # Add graphic points from window mask here to total pixels found 
+            l_points[(l_points == 255) | ((l_mask == 1) ) ] = 255
+            r_points[(r_points == 255) | ((r_mask == 1) ) ] = 255
+
+        # Draw the results
+        template = np.array(r_points+l_points,np.uint8) # add both left and right window pixels together
+        zero_channel = np.zeros_like(template) # create a zero color channel
+        template = np.array(cv2.merge((zero_channel,template,zero_channel)),np.uint8) # make window pixels green
+        warpage = np.array(cv2.merge((binary_warped,binary_warped,binary_warped)),np.uint8) # making the original road pixels 3 color channels
+        output = cv2.addWeighted(warpage, 1, template, 0.5, 0.0) # overlay the orignal road image with window results
+     
+    # If no window centers found, just display orginal road image
+    else:
+        output = np.array(cv2.merge((binary_warped,binary_warped,binary_warped)),np.uint8)
+
+    # Display the final results
+    if do_output:
+        plt.title('window fitting results')
+        plt.savefig(os.path.join(OUT_DIR, "7_window-fitting-results"+image_name+".png"))
+        plt.close()
+
+    return binary_warped
+
 def color_gradient_pipeline(img, do_output=False, image_name="", s_thresh=(100, 255), sx_thresh=(20, 100)):
     """
     Given a full-color image and optionally some threshold settings, will apply various thresholding
@@ -352,42 +435,62 @@ def process_image(image, do_output=False, image_name=""):
     """
     
     image_name, image_extension = os.path.splitext(image_name)
+    if do_output:
+        # When doing debug-output, it's helpful to have a copy of the original image around for overlaying things
+        # onto it.
+        orig_image = np.copy(image)
     
     # == Use color transforms, gradients, etc., to create a thresholded binary image. ==
     color_binary = color_gradient_pipeline(image, do_output, image_name)
-    if do_output == True:
+    if do_output:
         print("         Saving progress image for "+image_name+"...")
         write_binary_image(os.path.join(OUT_DIR, "3_color-gradient_"+image_name+".png"), color_binary)
 
     # == Perspective Transform ==
     # Apply a perspective transform to rectify binary image ("birds-eye view").
-    # WE WILL FIND A TRAPAZOIDAL AREA OF INTEREST AND USE IT FOR THE PERSPECTIVE TRANSFORM!
-    # We're defining a trapazoidal area at the center/bottom of the
-    # screen, in which to look. triangleHeight and trapazoidTopWidth are
-    # the parameters to manually tune, to control the size of the trapazoid.
+    # WE WILL FIND A TRAPEZOIDAL AREA OF INTEREST AND USE IT FOR THE PERSPECTIVE TRANSFORM!
+    # We're defining a trapezoidal area at the center/bottom of the
+    # screen (above the hood of the car though), in which to look. trapazoidHeight and trapazoidTopWidth are
+    # the parameters to manually tune, to control the size of the trapezoid.
     imgshape = color_binary.shape
     imgHeight = imgshape[0]
     imgWidth = imgshape[1]
+    PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
     PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
-    triangleHeight = imgHeight * 0.44 # guess/test/revised to tune this number
     # How wide the top of the trapezoid will be (got this by tweaking until "straight lines" images transformed to be parallel.
     # This was definitely guess/test/revise and may not be appropriate for all cameras.
     # TODO: CONTINUE TO TWEAK THIS VALUE!!! 0.35 IS VERY CLOSE, BUT OVERLAY A GRID ON IT TO SEE IF IT SHOULD BE TWEAKED MORE!!!
-    # HIGHER VALUES MAKE THEM GO OUT AT THE TOP, LOWER MAKE THEM COME BACK IN.
-    trapazoidTopWidth = imgWidth * 0.35
-    xOffset = (trapazoidTopWidth / 2) # dist that trapezoid top points will be from vertical center-line
+    # HIGHER VALUES MAKE THE TRANSFORMED LINES GO IN AT THE TOP, LOWER MAKE THEM COME BACK OUT AT THE TOP.
+    trapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
+    trapazoidHeight = imgHeight * 0.32 # guess/test/revised to tune this number (this will be actual height of trapezoid)
+
     # Trig to figure out the points in the trapezoid based on the configuration & image size:
-    theta = math.atan( triangleHeight / (imgWidth/2) )
+    xOffset = (trapazoidTopWidth / 2) # distance that trapezoid top points will be from vertical center-line
+    theta = math.atan( trapazoidHeight / (((imgWidth/2)-xOffset)-PADDING_FROM_SIDES) )
     topLeftX = ( (imgWidth/2) - xOffset )
-    topLeftY = imgHeight - (topLeftX * math.tan(theta))
+    trapHeightCheck = ((topLeftX-PADDING_FROM_SIDES) * math.tan(theta))
+    if (abs(trapHeightCheck - trapazoidHeight) > 0.001): # basically a unit-test for the trig I used ;)
+        print("TRAPAZOID HEIGHT CHECK FAILED!")
+        print("TRAP HEIGHT: ",trapazoidHeight)
+        print("HEIGHT CHEK: ",trapHeightCheck)
+        
+    topLeftY = imgHeight - PADDING_FROM_BOTTOM - trapazoidHeight
     topRightX = ( (imgWidth/2) + xOffset )
     topRightY = topLeftY
+    # NOTE FOR WRITEUP: This area was originally way too wide & short.
     src = np.array([[
         (topLeftX, topLeftY), # top left
         (topRightX, topRightY), # top right
-        (imgWidth, imgHeight-PADDING_FROM_BOTTOM), # bottom right
-        (0, imgHeight-PADDING_FROM_BOTTOM) # bottom left
+        (imgWidth-PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM), # bottom right
+        (PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM) # bottom left
     ]], dtype=np.float32)
+    
+    if do_output:
+        image_copy = np.copy(orig_image)
+        cv2.polylines(image_copy,  np.int32([src]),True,(255,0,0), thickness=2)
+        plt.imsave(os.path.join(OUT_DIR, "4.0-pre-warp-areaOfInterest-"+image_name+".png"), image_copy)
+        plt.close()
+    
     # Define 4 destination points dst = np.float32([[,],[,],[,],[,]])
     # Basically fit the destination inside a square space in the image, inside of a certain amount of padding
     PADDING = 0 # TODO: EXPERIMENT GETTING THIS TO 0
@@ -401,7 +504,7 @@ def process_image(image, do_output=False, image_name=""):
     # Use cv2.warpPerspective() to warp your image to a top-down view
     binary_warped = cv2.warpPerspective(color_binary, M, (imgWidth, imgHeight), flags=cv2.INTER_LINEAR)
     if do_output:
-        write_binary_image(os.path.join(OUT_DIR, "4_warped_"+image_name+".png"), binary_warped)
+        write_binary_image(os.path.join(OUT_DIR, "4.1-warped-"+image_name+".png"), binary_warped)
     image_height = binary_warped.shape[0]
     image_width = binary_warped.shape[1]
     
@@ -477,10 +580,8 @@ def process_image(image, do_output=False, image_name=""):
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
-
     
-    
-    # === Vizualizing the lane-finding ===
+    # === Visualizing the lane-finding ===
     # Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
@@ -496,52 +597,35 @@ def process_image(image, do_output=False, image_name=""):
         plt.ylim(image_height, 0)
         plt.savefig(os.path.join(OUT_DIR, "6_line_detection"+image_name+".png"))
         plt.close()
-    
-    
-    
+
+
     # TODO: MAKE SURE TO SKIP THE SLIDING-WINDOWS STEP ONCE WE HAVE AN IDEA OF WHERE THE LINES ARE (FOR PERFORMANCE REASONS).
     # Some useful code & visualization is in the bottom of 14-33
-    
+
     # NOTE: IF THE SLIDING-WINDOWS DON'T FIT WELL ENOUGH, LESSON 14-34 HAS ANOTHER WAY TO DO IT WHICH MIGHT BE EASIER
     # TO TWEAK INTO SOMETHING THAT WOULD FIT OUR NEEDS.
-    
-    
-    
-    # == DETERMINE CURVATURE ==
+
+
+    # TODO: REMOVE:? THIS WAS ANOTHER VISUALIZATION BEFORE THE CURVATURE... I HAVE
+    # NO IDEA WHAT PURPOSE IT COULD SERVE.
     # Determine the curvature of the lane and vehicle position with respect to center.
-    # Generate some fake data to represent lane-line pixels
-    ploty = np.linspace(0, (image_height-1), num=image_height)# to cover same y-range as image
-    quadratic_coeff = 3e-4 # arbitrary quadratic coefficient
-    # For each y position generate random x position within +/-50 pix
-    # of the line base position in each case (x=200 for left, and x=900 for right)
-    leftx = np.array([200 + (y**2)*quadratic_coeff + np.random.randint(-50, high=51) 
-                                  for y in ploty])
-    rightx = np.array([900 + (y**2)*quadratic_coeff + np.random.randint(-50, high=51) 
-                                    for y in ploty])
+    # Plot up the points vs curve data
+    # if do_output:
+        # mark_size = 3
+        # plt.plot(leftx, ploty, 'o', color='red', markersize=mark_size)
+        # plt.plot(rightx, ploty, 'o', color='blue', markersize=mark_size)
+        # plt.xlim(0, image_width)
+        # plt.ylim(0, image_height)
+        # plt.plot(left_fitx, ploty, color='green', linewidth=3)
+        # plt.plot(right_fitx, ploty, color='green', linewidth=3)
+        # plt.gca().invert_yaxis() # to visualize as we do the images
+        # plt.savefig(os.path.join(OUT_DIR, "7_curvature"+image_name+".png"))
+        # plt.close()
 
-    leftx = leftx[::-1]  # Reverse to match top-to-bottom in y
-    rightx = rightx[::-1]  # Reverse to match top-to-bottom in y
-
-
-    # Fit a second order polynomial to pixel positions in each fake lane line
-    left_fit = np.polyfit(ploty, leftx, 2)
-    left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-    right_fit = np.polyfit(ploty, rightx, 2)
-    right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-
-    # Plot up the fake data
-    mark_size = 3
-    if do_output:
-        plt.plot(leftx, ploty, 'o', color='red', markersize=mark_size)
-        plt.plot(rightx, ploty, 'o', color='blue', markersize=mark_size)
-        plt.xlim(0, image_width)
-        plt.ylim(0, image_height)
-        plt.plot(left_fitx, ploty, color='green', linewidth=3)
-        plt.plot(right_fitx, ploty, color='green', linewidth=3)
-        plt.gca().invert_yaxis() # to visualize as we do the images
-        plt.savefig(os.path.join(OUT_DIR, "7_curvature"+image_name+".png"))
-        plt.close()
-    
+    # TODO: EXPERIMENT WITH THIS ALTERNATIVE METHOD FROM LESSON 14-34
+    #curvatures_via_convolutions(binary_warped, image_name)
+        
+    # == DETERMINE CURVATURE ==
     # Define y-value where we want radius of curvature
     # I'll choose the maximum y-value, corresponding to the bottom of the image
     y_eval = np.max(ploty)
@@ -551,19 +635,25 @@ def process_image(image, do_output=False, image_name=""):
         #print("\t\tCurve radii: ", left_curverad, right_curverad)
         # Example values: 1926.74 1908.48
 
+    # == CONVERT CURVATURE FROM PIXEL-SPACE TO WORLD-SPACE ==
     # Define conversions in x and y from pixels space to meters
     ym_per_pix = 30/720 # meters per pixel in y dimension
     xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # Fit new polynomials to x,y in world space
-    left_fit_cr = np.polyfit(ploty*ym_per_pix, leftx*xm_per_pix, 2)
-    right_fit_cr = np.polyfit(ploty*ym_per_pix, rightx*xm_per_pix, 2)
+    #left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fit[1]*xm_per_pix, 2)
+    left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
+    #left_fit_cr = np.polyfit(ploty*ym_per_pix, leftx*xm_per_pix, 2)
+    #right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fit[1]*xm_per_pix, 2)
+    right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fitx*xm_per_pix, 2)
+    #right_fit_cr = np.polyfit(ploty*ym_per_pix, rightx*xm_per_pix, 2)
     # Calculate the new radii of curvature
     left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
     right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
     # Now our radius of curvature is in meters
-    #print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
-    # Example values: 632.1 m    626.2 m
+    #if do_output:
+        #print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
+        # Example values: 632.1 m    626.2 m
    
 
     # == WARP DETECTED LANE BOUNDARIES BACK ONTO THE ORIGINAL IMAGE ==
@@ -585,11 +675,12 @@ def process_image(image, do_output=False, image_name=""):
     # Combine the result with the original image
     result = cv2.addWeighted(image, 1, newwarp, 0.3, 0)
     if do_output:
-        plt.imshow(result)
-        plt.savefig(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"))
+        plt.imsave(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"), result)
+        #plt.imshow(result)
+        #plt.savefig(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"))
         plt.close()
 
-    # == ADD REQUIRED ANNOTATIONS ONTO THE IMAGE ==
+    # == ADD REQUIRED ANNOTATIONS (CURVATURE & DIST FROM CENTER) ONTO THE IMAGE ==
     # Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
     font = cv2.FONT_HERSHEY_SIMPLEX
     FONT_SCALE = 1.0
@@ -637,41 +728,60 @@ if not os.path.exists(OUT_DIR):
     
 # == CAMERA CALIBRATION ==
 print("Calibrating camera...")
-NUM_X_CORNERS = 9 # number of interior corners horizontally
-NUM_Y_CORNERS = 6 # number of interior corners vertically
 
-# The object points and image points will be built-up accross all
-# of our calibration images, so as we add more images, the calibration
-# should get slightly better for a while.
-objpoints = [] # 3D points in real world space
-imgpoints = [] # 2D points in image plane
+# Camera calibration is time-consuming (10-12 seconds every time I try to execute the code) so
+# the results are being saved to a pickle-file.
+CALIBRATION_FILENAME = "calibration.p"
 
-# Prepare object points, like (0,0,0), (1,0,0), (2,0,0), ...,(7,5,0)
-objp = np.zeros((NUM_X_CORNERS*NUM_Y_CORNERS, 3), np.float32)
-objp[:,:2] = np.mgrid[0:NUM_X_CORNERS,0:NUM_Y_CORNERS].T.reshape(-1,2) # x, y coordinates
+calibration_data = False
+if os.path.isfile(CALIBRATION_FILENAME):
+    calibration_data = pickle.load( open(CALIBRATION_FILENAME, "rb") )
 
-# Iterate through each of the chessboard calibration images.
-for image_number in range(1,21):
-    calibration_file_name = os.path.join(CALIBRATION_DIR, "calibration"+str(image_number)+".jpg")
-    img = cv2.imread(calibration_file_name)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    ret, corners = cv2.findChessboardCorners(gray, (NUM_X_CORNERS, NUM_Y_CORNERS), None)
-    if ret == True:
-        imgpoints.append(corners)
-        objpoints.append(objp)
+if calibration_data:
+    print("CALIBRATION DATA LOADED FROM PICKLE FILE! WILL NOT RE-CALIBRATE.")
+    mtx = calibration_data["mtx"]
+    dist = calibration_data["dist"]
+else:
+    NUM_X_CORNERS = 9 # number of interior corners horizontally
+    NUM_Y_CORNERS = 6 # number of interior corners vertically
 
-        # Draw and display the corners, save it to a file as a demonstration.
-        img_with_corners = img.copy()
-        cv2.drawChessboardCorners(img_with_corners, (NUM_X_CORNERS, NUM_Y_CORNERS), corners, ret)
-        calibration_output_file_name = os.path.join(OUT_DIR, "z1_calibration_with_corners_"+str(image_number)+".png")
-        cv2.imwrite(calibration_output_file_name, img_with_corners)
+    # The object points and image points will be built-up accross all
+    # of our calibration images, so as we add more images, the calibration
+    # should get slightly better for a while.
+    objpoints = [] # 3D points in real world space
+    imgpoints = [] # 2D points in image plane
 
-        # Calibrate the camera (each image should be making this calibration slightly better).
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    # Prepare object points, like (0,0,0), (1,0,0), (2,0,0), ...,(7,5,0)
+    objp = np.zeros((NUM_X_CORNERS*NUM_Y_CORNERS, 3), np.float32)
+    objp[:,:2] = np.mgrid[0:NUM_X_CORNERS,0:NUM_Y_CORNERS].T.reshape(-1,2) # x, y coordinates
 
-        # == Demonstrate distortion-correction ==
-        undist = cv2.undistort(img, mtx, dist, None, mtx)
-        cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), img)
+    # Iterate through each of the chessboard calibration images.
+    for image_number in range(1,21):
+        calibration_file_name = os.path.join(CALIBRATION_DIR, "calibration"+str(image_number)+".jpg")
+        img = cv2.imread(calibration_file_name)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        ret, corners = cv2.findChessboardCorners(gray, (NUM_X_CORNERS, NUM_Y_CORNERS), None)
+        if ret == True:
+            imgpoints.append(corners)
+            objpoints.append(objp)
+
+            # Draw and display the corners, save it to a file as a demonstration.
+            img_with_corners = img.copy()
+            cv2.drawChessboardCorners(img_with_corners, (NUM_X_CORNERS, NUM_Y_CORNERS), corners, ret)
+            calibration_output_file_name = os.path.join(OUT_DIR, "z1_calibration_with_corners_"+str(image_number)+".png")
+            cv2.imwrite(calibration_output_file_name, img_with_corners)
+
+            # Calibrate the camera (each image should be making this calibration slightly better).
+            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+            # == Demonstrate distortion-correction ==
+            undist = cv2.undistort(img, mtx, dist, None, mtx)
+            cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), img)
+            
+    # Store the calibration to a pickle-file.
+    calibration_data = {"mtx": mtx, "dist": dist}
+    print("Storing calibration-data to file so that we won't have to re-calibrate on the next execution.")
+    pickle.dump( calibration_data, open( CALIBRATION_FILENAME, "wb" ) )
 
 print("Done calibrating camera.")
 
