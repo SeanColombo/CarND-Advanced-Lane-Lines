@@ -13,6 +13,19 @@ This script is for advanced lane-finding for Project 4 for Udacity's Self-Drivin
 
 The initial flow will be based largely off of the Project 1 lanefinding video-processing, but with the
 distortion-removal, perspective-transforms, and various gradients and thresholdings we learned in Lesson 14.
+
+TODO:
+    - Output the source-points trapazoid on input images to see what region we're considering... it might be too big.
+    - Re-write the lane-curvature detection (I think just rewrite to use second method but leave original there but turned off, so I can demostrate it in writeup)
+    - Tweak things exhaustively until the lane-detection is pretty good
+        - Add sanity-check: make sure they're roughly parallel
+        - Add santiy-check: make sure the curvatures are realistic based on the highway standards
+    - Start running the code against the video to get a decent progress-point
+    - While it is processing the video, write the code to optimize lane-finding in sequential images (eg: use Line class). Should make it much faster.
+    - Now that it's processing a video (quickly) go back for another round of tweaks to ensure that the detection is good enough.
+    - Delete unused functions (I copied a bunch over from my Project 1, which I thought I'd use).
+    - Clean up code
+    - Do the writeup
 """
 
 def grayscale(img):
@@ -268,49 +281,70 @@ def process_image_OLD(image):
     return combined_image
     
     
-def color_gradient_pipeline(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
+    
+    
+    
+    
+    
+    
+def color_gradient_pipeline(img, do_output=False, image_name="", s_thresh=(100, 255), sx_thresh=(20, 100)):
+    """
+    Given a full-color image and optionally some threshold settings, will apply various thresholding
+    based on color, Sobel derivatives, and the magnitude of gradients and combine them such that
+    it will return a black-and-white binary image result where the regions that are likely to be
+    lane-lines will be white and the image that is less likely to be lane-lines will be black.
+    """
     img = np.copy(img)
     # Convert to HLS color space and separate the V channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
     l_channel = hls[:,:,1]
     s_channel = hls[:,:,2]
-    cv2.imwrite(os.path.join(OUT_DIR, "3.10-hls-.png"), hls) # TODO: REMOVE?
+    if do_output:
+        cv2.imwrite(os.path.join(OUT_DIR, "3.10-hls-"+image_name+".png"), hls)
 
     # Sobel x
     sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0) # Take the derivative in x
     abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
     scaled_sobel = np.uint8(255*abs_sobelx/np.max(abs_sobelx))
-    cv2.imwrite(os.path.join(OUT_DIR, "3.20-sobel-.png"), scaled_sobel) # TODO: REMOVE?
+    if do_output:
+        cv2.imwrite(os.path.join(OUT_DIR, "3.20-sobel-"+image_name+".png"), scaled_sobel)
     
     # Threshold x gradient (magnitude of the gradient)
     sxbinary = np.zeros_like(scaled_sobel)
     sxbinary[(scaled_sobel > sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-    write_binary_image(os.path.join(OUT_DIR, "3.30-thresh_x_gradient-.png"), sxbinary) # TODO: REMOVE?
+    if do_output:
+        write_binary_image(os.path.join(OUT_DIR, "3.30-thresh_x_gradient-"+image_name+".png"), sxbinary)
     
     # Threshold on S color channel
-    cv2.imwrite(os.path.join(OUT_DIR, "3.40-s_channel-.png"), s_channel) # TODO: REMOVE?
+    if do_output:
+        cv2.imwrite(os.path.join(OUT_DIR, "3.40-s_channel-"+image_name+".png"), s_channel)
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel > s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
-    write_binary_image(os.path.join(OUT_DIR, "3.41-s_binary-.png"), s_binary) # TODO: REMOVE?
+    if do_output:
+        write_binary_image(os.path.join(OUT_DIR, "3.41-s_binary-"+image_name+".png"), s_binary)
 
     # Stack each channel
     # Just for seeing the different contributions in different colors
     color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary))
-    write_binary_image(os.path.join(OUT_DIR, "3.45-stacked_binaries-.png"), color_binary) # TODO: REMOVE?
+    if do_output:
+        write_binary_image(os.path.join(OUT_DIR, "3.45-stacked_binaries-"+image_name+".png"), color_binary)
     
     combined_binary = np.zeros_like(sxbinary)
     combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
-    write_binary_image(os.path.join(OUT_DIR, "3.50-color_binary-.png"), combined_binary) # TODO: REMOVE?
+    if do_output:
+        write_binary_image(os.path.join(OUT_DIR, "3.50-color_binary-"+image_name+".png"), combined_binary)
     return combined_binary
     
-def process_image(image, mtx, dist, do_output=False, image_name=""):
+def process_image(image, do_output=False, image_name=""):
     """
     Given an image (loaded from a file or a frame of a video), 
     process it to find the lane-lines and overlay them.
     
+    
     image:      the full-color image (eg: from cv2.imread()).
-    mtx:        cameraMatrics from cv2.calibrateCamera()
-    dist:       distortion-coefficients from cv2.calibrateCamera()
+    # WARNING: Using mtx & dist as globals, not params since fl_image doesn't allow us to pass parameters.
+    #mtx:        cameraMatrics from cv2.calibrateCamera()
+    #dist:       distortion-coefficients from cv2.calibrateCamera()
     do_output:  whether to output images of the various steps. Intended to be done doing
                 for the static images but not for the videos (since there are a ton of frames).
     image_name: optional. Recommended when do_output is true. This will be used for debug
@@ -320,7 +354,7 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
     image_name, image_extension = os.path.splitext(image_name)
     
     # == Use color transforms, gradients, etc., to create a thresholded binary image. ==
-    color_binary = color_gradient_pipeline(image)
+    color_binary = color_gradient_pipeline(image, do_output, image_name)
     if do_output == True:
         print("         Saving progress image for "+image_name+"...")
         write_binary_image(os.path.join(OUT_DIR, "3_color-gradient_"+image_name+".png"), color_binary)
@@ -366,7 +400,8 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
     Minv = cv2.getPerspectiveTransform(dst, src)
     # Use cv2.warpPerspective() to warp your image to a top-down view
     binary_warped = cv2.warpPerspective(color_binary, M, (imgWidth, imgHeight), flags=cv2.INTER_LINEAR)
-    write_binary_image(os.path.join(OUT_DIR, "4_warped_"+image_name+".png"), binary_warped)
+    if do_output:
+        write_binary_image(os.path.join(OUT_DIR, "4_warped_"+image_name+".png"), binary_warped)
     image_height = binary_warped.shape[0]
     image_width = binary_warped.shape[1]
     
@@ -375,8 +410,9 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
     # === Histogram ===
     # STARTING POINT WAS DIRECTLY FROM LESSON 14-33. Will modify from there.
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
-    plt.plot(histogram)
-    plt.savefig(os.path.join(OUT_DIR, "5_histogram_"+image_name+".png"))
+    if do_output:
+        plt.plot(histogram)
+        plt.savefig(os.path.join(OUT_DIR, "5_histogram_"+image_name+".png"))
 
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
     # Find the peak of the left and right halves of the histogram
@@ -452,13 +488,14 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
 
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
     out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-    plt.imshow(out_img)
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
-    plt.xlim(0, image_width)
-    plt.ylim(image_height, 0)
-    plt.savefig(os.path.join(OUT_DIR, "6_line_detection"+image_name+".png"))
-    plt.close()
+    if do_output:
+        plt.imshow(out_img)
+        plt.plot(left_fitx, ploty, color='yellow')
+        plt.plot(right_fitx, ploty, color='yellow')
+        plt.xlim(0, image_width)
+        plt.ylim(image_height, 0)
+        plt.savefig(os.path.join(OUT_DIR, "6_line_detection"+image_name+".png"))
+        plt.close()
     
     
     
@@ -494,25 +531,26 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
 
     # Plot up the fake data
     mark_size = 3
-    plt.plot(leftx, ploty, 'o', color='red', markersize=mark_size)
-    plt.plot(rightx, ploty, 'o', color='blue', markersize=mark_size)
-    plt.xlim(0, image_width)
-    plt.ylim(0, image_height)
-    plt.plot(left_fitx, ploty, color='green', linewidth=3)
-    plt.plot(right_fitx, ploty, color='green', linewidth=3)
-    plt.gca().invert_yaxis() # to visualize as we do the images
-    plt.savefig(os.path.join(OUT_DIR, "7_curvature"+image_name+".png"))
-    plt.close()
+    if do_output:
+        plt.plot(leftx, ploty, 'o', color='red', markersize=mark_size)
+        plt.plot(rightx, ploty, 'o', color='blue', markersize=mark_size)
+        plt.xlim(0, image_width)
+        plt.ylim(0, image_height)
+        plt.plot(left_fitx, ploty, color='green', linewidth=3)
+        plt.plot(right_fitx, ploty, color='green', linewidth=3)
+        plt.gca().invert_yaxis() # to visualize as we do the images
+        plt.savefig(os.path.join(OUT_DIR, "7_curvature"+image_name+".png"))
+        plt.close()
     
     # Define y-value where we want radius of curvature
     # I'll choose the maximum y-value, corresponding to the bottom of the image
     y_eval = np.max(ploty)
     left_curverad = ((1 + (2*left_fit[0]*y_eval + left_fit[1])**2)**1.5) / np.absolute(2*left_fit[0])
     right_curverad = ((1 + (2*right_fit[0]*y_eval + right_fit[1])**2)**1.5) / np.absolute(2*right_fit[0])
-    print("\t\tCurve radii: ", left_curverad, right_curverad)
-    # Example values: 1926.74 1908.48
-    
-    
+    #if do_output:
+        #print("\t\tCurve radii: ", left_curverad, right_curverad)
+        # Example values: 1926.74 1908.48
+
     # Define conversions in x and y from pixels space to meters
     ym_per_pix = 30/720 # meters per pixel in y dimension
     xm_per_pix = 3.7/700 # meters per pixel in x dimension
@@ -524,7 +562,7 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
     left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
     right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
     # Now our radius of curvature is in meters
-    print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
+    #print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
     # Example values: 632.1 m    626.2 m
    
 
@@ -546,17 +584,31 @@ def process_image(image, mtx, dist, do_output=False, image_name=""):
     newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0])) 
     # Combine the result with the original image
     result = cv2.addWeighted(image, 1, newwarp, 0.3, 0)
-    plt.imshow(result)
-    plt.savefig(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"))
-    plt.close()
-    
-    
-    # REMAINING PROJECT STEPS:
+    if do_output:
+        plt.imshow(result)
+        plt.savefig(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"))
+        plt.close()
+
+    # == ADD REQUIRED ANNOTATIONS ONTO THE IMAGE ==
     # Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    FONT_SCALE = 1.0
+    FONT_COLOR = (255,0,0)
+    # Find left-X/right-X of the bottom row of the image
+    center_of_car = leftx[len(leftx)-1] + ((rightx[len(rightx)-1] - leftx[len(leftx)-1])/2)
+    center_of_image = (image_width / 2)
+    offset_from_center = (center_of_car - center_of_image) * xm_per_pix # find the offset-from-center in meters
+    offset_from_center = round(offset_from_center, 2)
+    # Need to putText right onto the image rather than using plt.text() because we need the annotations in the video-stream.
+    cv2.putText(result, "Curvature radius: "+str(round(left_curverad, 2))+" meters", (10, 50), font, FONT_SCALE, FONT_COLOR, thickness=2)
+    cv2.putText(result, "Car-center offset: "+str(offset_from_center)+" meters", (10,100), font, FONT_SCALE, FONT_COLOR, thickness=2)
+    # This is the same as the overall result that we output later, so removing this for now (possibly permanently).
+    # if do_output:
+        # plt.imshow(result)
+        # plt.savefig(os.path.join(OUT_DIR, "9_annotated_lane_lines_"+image_name+".png"))
+        # plt.close()
 
-
-
-    return image
+    return result
 
 def write_binary_image(file_name, img):
     """
@@ -573,7 +625,7 @@ def write_binary_image(file_name, img):
 IN_DIR = "test_images"
 CALIBRATION_DIR = "camera_cal"
 OUT_DIR = "output_images"
-VIDEO_IN_DIR = "test_videos"
+VIDEO_IN_DIR = "."
 VIDEO_OUT_DIR = "test_videos_output"
 
 # Ensure the output directory for images/videos exist so that we can write to them.
@@ -611,7 +663,7 @@ for image_number in range(1,21):
         # Draw and display the corners, save it to a file as a demonstration.
         img_with_corners = img.copy()
         cv2.drawChessboardCorners(img_with_corners, (NUM_X_CORNERS, NUM_Y_CORNERS), corners, ret)
-        calibration_output_file_name = os.path.join(OUT_DIR, "1_calibration_with_corners_"+str(image_number)+".png")
+        calibration_output_file_name = os.path.join(OUT_DIR, "z1_calibration_with_corners_"+str(image_number)+".png")
         cv2.imwrite(calibration_output_file_name, img_with_corners)
 
         # Calibrate the camera (each image should be making this calibration slightly better).
@@ -619,7 +671,7 @@ for image_number in range(1,21):
 
         # == Demonstrate distortion-correction ==
         undist = cv2.undistort(img, mtx, dist, None, mtx)
-        cv2.imwrite(os.path.join(OUT_DIR, "2_undistorted_chess_board_"+str(image_number)+".png"), img)
+        cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), img)
 
 print("Done calibrating camera.")
 
@@ -632,24 +684,20 @@ for file_index in range(len(files)):
     # All of the image-processing is done in this call
     print("     Processing "+fullFilePath+"...")
     image = mpimg.imread(fullFilePath)
-    image = process_image(image, mtx, dist, do_output=True, image_name=files[file_index])
+    image = process_image(image, do_output=True, image_name=files[file_index])
     
     # Take the processed image and save it to the output directory.
     saveFile = os.path.join(OUT_DIR, files[file_index])
     plt.imsave(saveFile, image)
-    
-    # The files are already saved... also show the image in the notebook.
-    plt.figure()
-    #plt.imshow(image)
 print("Done processing static images.")
 
 
 # Video processing
-# print("Processing video file...")
-# video_input_filename = os.path.join(VIDEO_IN_DIR, 'project_video.mp4')
-# video_output_filename = os.path.join(VIDEO_OUT_DIR, 'project_video.mp4')
-# clip1 = VideoFileClip(video_input_filename)
-# output_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
-# print("Writing video file...")
-# output_clip.write_videofile(video_output_filename, audio=False)
-# print("Done!")
+print("Processing video file...")
+video_input_filename = os.path.join(VIDEO_IN_DIR, 'project_video.mp4')
+video_output_filename = os.path.join(VIDEO_OUT_DIR, 'project_video.mp4')
+clip1 = VideoFileClip(video_input_filename)
+output_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+print("Writing video file...")
+output_clip.write_videofile(video_output_filename, audio=False)
+print("Done!")
