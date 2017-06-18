@@ -64,39 +64,89 @@ Interestingly, I managed to do the entire project forgetting to apply the undist
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
-I used a combination of color and gradient thresholds to generate a binary image (thresholding steps at lines # through # in `another_file.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
+Color transforms and gradients were easily encapsulated, so immediately after the undistortion in `process_images()`, I made a call out to `color_gradient_pipeline()` (defined around line 116 of `findLanes.py`) which includes all of the code for color transforms and gradients.
 
-![alt text][image3]
+There were a bunch of steps in here, and I created images for all of the static test-images at each step in this process.  Here is an example of all of the steps for one test-image:
+
+Converting image to HLS color-space:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.10-hls-straight_lines1.png" width="350">
+Using Sobel operator on X:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.20-sobel-straight_lines1.png" width="350">
+Threshold X gradient (magnitude of the gradient):
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.30-thresh_x_gradient-straight_lines1.png" width="350">
+Separating out the S-Channel:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.40-s_channel-straight_lines1.png" width="350">
+Threshold on the S-Channel to make binary output:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.41-s_binary-straight_lines1.png" width="350">
+Stacking the thresholding/gradients and s-channel values to show what they each contribute:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.45-color_binary-straight_lines1.png" width="350">
+Combined the binary values that are shown in the prior steps:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.50-stacked_binaries.png" width="350">
+
+Through this process, we took a full-color image and returned a binary image which has a pretty good starting point for "seeing" lines of all colors (white and yellow in our use-case) even in varying light conditions (eg: shadows). This binary image will be used for the remainder of the processing in the pipeline.
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
+After the call to `color_gradient_pipeline()`, it was necessary to perform a perspective-transform on the binary image to make it so that we were in effect "looking down" onto the road.
 
-```python
-src = np.float32(
-    [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 10), img_size[1]],
-    [(img_size[0] * 5 / 6) + 60, img_size[1]],
-    [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4), 0],
-    [(img_size[0] / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), 0]])
+This is accomplished by creating a trapezoidal "source" area and transforming/warping it into a rectangular destination.
+
+As an aside: this step was a great example of why it is very useful to visually debug every step in your pipeline. My early results of the whole pipeline were quite awful and it was all because I use the source-trapezoid that I had created in Project 1 and did not initially debug its appropriateness for this particular use-case.  Once I did start outputting an overlay of the source-trapezoid onto the input images, it became clear that it was far from what I needed.  Here is the initial source-area:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/z_Original-Area-of-Interest.png" width="350">
+
+The problems with this area-of-interest are that with the way this camera is mounted (as opposed to Project 1 where this region was created for) it is way to "short" and wide. There is very little room to see the lane ahead, and a lot of wasted space in the shoulder & off in the next lane. The short lane gives insufficient information to see the dashed white lines while the side-information could confuse the lane-detection when it sees things like changes in pavement, jersey-barriers, etc..
+
+Here is a view of a more appropriate area-of-interest that I found worked much better for this project:
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/4.0-pre-warp-areaOfInterest-straight_lines1.png" width="350">
+
+When choosing this area, it was important to make sure that the "side" lines of the trapezoid were fairly close to parallel to the lane-liens in the "straight" sample images.  This leads to the perspective-transform being what we need. One way that I tweaked this was to change the trapezoid slightly, then see how it affected the "transformed" images. When the perspective-transformed images for the two straight-line test images had what appeared to be parallel, verticle lines, then the calibration was complete.  I had variables in my code (primarily `trapazoidTopWidth` which is the width of the top-line of the trapezoid, which results in controlling the angles of the side-lines of the trapezoid) that allowed me to tweak this transformation with sufficient precision.
+
+The "destination" that I projected to, was a simple rectangle filling the image.
+
+```pythontrapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
+    trapazoidHeight = imgHeight * 0.32 # guess/test/revised to tune this number (this will be actual height of trapezoid)
+    PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
+    PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
+
+    # Trig to figure out the points in the trapezoid based on the configuration & image size:
+    xOffset = (trapazoidTopWidth / 2) # distance that trapezoid top points will be from vertical center-line
+    theta = math.atan( trapazoidHeight / (((imgWidth/2)-xOffset)-PADDING_FROM_SIDES) )
+    topLeftX = ( (imgWidth/2) - xOffset )
+    trapHeightCheck = ((topLeftX-PADDING_FROM_SIDES) * math.tan(theta))
+    if (abs(trapHeightCheck - trapazoidHeight) > 0.001): # basically a unit-test for the trig I used ;)
+        print("TRAPAZOID HEIGHT CHECK FAILED!")
+        print("TRAP HEIGHT: ",trapazoidHeight)
+        print("HEIGHT CHEK: ",trapHeightCheck)
+    topLeftY = imgHeight - PADDING_FROM_BOTTOM - trapazoidHeight
+    topRightX = ( (imgWidth/2) + xOffset )
+    topRightY = topLeftY
+    src = np.array([[
+        (topLeftX, topLeftY), # top left
+        (topRightX, topRightY), # top right
+        (imgWidth-PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM), # bottom right
+        (PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM) # bottom left
+    ]], dtype=np.float32)
+
+    PADDING = 0 # it turns out that no padding was necessary. The lessons appeared to have horizontal padding but I couldn't think of any value that would provide.
+    dst = np.float32([[PADDING, PADDING], # top left
+                      [imgWidth-PADDING, PADDING], # top right
+                      [imgWidth-PADDING, imgHeight-PADDING], # bottom right
+                      [PADDING, imgHeight-PADDING]]) # bottom left
 ```
 
-This resulted in the following source and destination points:
+Here is a perspective-transformed version of the binary source above. You'll note that since the "source" region fairly closely matches the area of a lane, that much of the un-desired information in the image (trees, cars, etc.) no longer appears in our data.  Also: the lines have been projected to a relatively parallel position.
 
-| Source        | Destination   | 
-|:-------------:|:-------------:| 
-| 585, 460      | 320, 0        | 
-| 203, 720      | 320, 720      |
-| 1127, 720     | 960, 720      |
-| 695, 460      | 960, 0        |
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/4.1-warped-straight_lines1.png" width="350">
 
-I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-![alt text][image4]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
