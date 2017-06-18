@@ -13,7 +13,6 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[calibration_corners]: ./output_images/z1_calibration_with_corners_3.png "Calibration Corners"
 [calibration_undistorted]: ./output_images/z2_undistorted_chess_board_3.png "Calibration Undistorted"
 [undistorted]: ./output_images/2_undistorted_straight_lines1.png "Undistorted camera image"
 [project_video_output]: ./test_videos_output/project_video.mp4 "Project Video Output"
@@ -40,7 +39,7 @@ I start by preparing "object points", which will be the (x, y, z) coordinates of
 
 I assumed that all images would have 9 corners detected horizontally and 6 detected vertically. Most images were able to find all of these corners, but some calibration images had too much of the image cropped off so not all of the corners could be found. To prevent these images from potentially confusing the calibration, those images were not used for calibration. Of the 20 calibration images, only 3 (image 1, image 4, and image 5) could not find a good match - the other 17 images were used.  Here is an example of the results of corner-detection that `cv2.findChessboardCorners()` provides:
 
-![Camera Calibration corner detection][calibration_corners]
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/z1_calibration_with_corners_3.png" width="350">
 
 I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result: 
 
@@ -58,7 +57,7 @@ The pipeline for processing a single image (or frame of a video) is included in 
 
 The undistortion is achieved by using the `cv2.undistort()` function and passing in the `mtx` and `dist` values that were obtained from the camera-calibration steps described above.
 
-Interestingly, I managed to do the entire project forgetting to apply the undistortion values to the images in `process_image()`. The entire pipeline worked fine without the undistortion-step but that probably only implies that the camera's distortion is not that extreme.  I have now corrected the pipeline and you can see the small but important effect of undistortion in this example (look near the bottom corners to see the difference):
+Interestingly, I managed to initially do the entire project forgetting to apply the undistortion values to the images in `process_image()`. The entire pipeline worked fine without the undistortion-step but that probably only implies that the camera's distortion is not that extreme.  I have now corrected the pipeline and you can see the small but important effect of undistortion in this example (look near the bottom corners to see the difference):
 
 ![undistorted camera image][undistorted]
 
@@ -113,7 +112,8 @@ The "destination" that I projected to, was a simple rectangle filling the image.
 
 The code to create source/dest from a few configuration variables (just some trig) is here:
 
-```pythontrapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
+```python
+    trapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
     trapazoidHeight = imgHeight * 0.32 # guess/test/revised to tune this number (this will be actual height of trapezoid)
     PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
     PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
@@ -139,6 +139,8 @@ The code to create source/dest from a few configuration variables (just some tri
                       [PADDING, imgHeight-PADDING]]) # bottom left
 ```
 
+These source and destination values are passed into `cv2.getPerspectiveTransform()` to obtain the transformation matrix that can then be passed into `cv2.warpPerspective()` to get the top-down view of the image.
+
 Here is a perspective-transformed version of the binary source above. You'll note that since the "source" region fairly closely matches the area of a lane, that much of the un-desired information in the image (trees, cars, etc.) no longer appears in our data.  Also: the lines have been projected to a relatively parallel position.
 
 <img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/4.1-warped-straight_lines1.png" width="350">
@@ -159,15 +161,22 @@ The points found in these sliding windows were then passed into numpy's `polyfit
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I did this in lines # through # in my code in `my_other_file.py`
+Starting around line 359 of `findLanes.py`, I calculated the radius of curvature of the lane using the [radius-of-curvature forumula](http://www.intmath.com/applications-differentiation/8-radius-curvature.php). This resulted in a pixel-space number which I then converted to world-space using the hints provided for this camera:
+```python
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+```
+
+The curvature is a huge radius on relatively straight lanes and smaller on very curvy portions of the road.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
+Starting around line 385 of `findLanes.py`, I warped the detected lane-lines back from the top-down perspective to the normal camera perspective so that I could visualize the efficacy of the lane-detection.  This uses the `cv2.warpPerspective()` function again, but uses the `Minv` transformation matrix which is the INVERSE of the orignal transformation-matrix that was used to obtain the top-down view. The inverse transformation matrix is obtained by calling `cv2.getPerspectiveTransform()` with the source and destination values inverted.
 
-![alt text][image6]
+In addition to rendering this area onto the undistorted versions of the test-images, I also applied the required annotations for the radius of curvature, and the estimate of how far (in world-space) the center of the car was from the center of the lane (negative numbers indicate that the car is left-of-center, positive numbers indicate that the car is right-of-center).
 
----
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/straight_lines1.png" width="350">
 
 ### Pipeline (video)
 
@@ -175,10 +184,20 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 
 Here's a [link to my video result](./test_video_output/project_video.mp4)
 
----
+The detection performs quite well. The only visible shortcoming is that the lane detected is a bit narrow at the top in some cases. This isn't a large problem, but if we desired better accuracy there are some tweaks that could be made to improve that issue (and several other areas for improvement) as described below.
 
 ### Discussion
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+Each segment above was accompanied by descriptions of areas where I struggled (eg: the initial Area of Interest being way too short and wide) and things I completely messed up (forgetting to unwarp the images until after I had the entire pipeline working), but there are things that I did NOT yet do, that could still be done to improve this project.
+
+Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.
+
+While making the project, I kept a running list of all of the things I absolutely needed to do, as well as improvements sorted by their expected level of impact. Then I just kept improving it until the results exceeded the requirements.  Here are some remaining areas for improvement:
+
+* Could add a sanity-check to make sure the lane-lines are roughly parallel. This would address the aforemention weakness that sometimes the very top of the lane-lines are too narrow at the top. Since we know that the left-lane is solid-yellow and easier to detect in this use-case, we could make the right-lane-line bias to more closely match the left, but this solution would be very project-specific and would not extend well to the general use-case of lane detection.  In the more general case, we could take an average of the two lanes curvatures if both lanes passed the OTHER sanity-check mentioned below.
+* Could add a santiy-check to make sure the curvatures are realistic based on the [US specifications for highway curvatures](http://onlinemanuals.txdot.gov/txdotmanuals/rdw/horizontal_alignment.htm#BGBHGEGC). If one line did not fall within reasonable bounds but the other did, the bad line could just be replaced by an average of the previously-known line and a parallel line to the reasonable line of the current image.
+* The image-processing took over 2 minutes on commodity hardware for a 50 second video. It's unclear what kind of hardware would be running this code but it is highly likely that this would be too slow of an implementation for real deployment (which needs to be realtime (eg: take less than 50 seconds to process a 50 second video) and ideally shouldn't use the whole processor since there is lots of other work for a Self Driving Car to do at the same time as lane-detection.  To improve this issue we could write code to optimize lane-finding in sequential images (eg: use a Line class to remember lines from previous images) then instead of doing the sliding-window search, we could always start the search near previously-seen lines. This approach should make the lane-detection much faster.
+* The lane-curvature calculation worked fine in practice but I started another implementation that can be found in the  `curvatures_via_convolutions()` method.  Frankly, I didn't expect my initial implementation to be sufficient, but it turned out great so I didn't need to fully work through the second approach!  The spot to substitute it in, is in the code, commented out near line 357 of `findLanes.py`
+
