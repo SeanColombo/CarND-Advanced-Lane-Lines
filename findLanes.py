@@ -181,9 +181,21 @@ def process_image(image, do_output=False, image_name=""):
         # When doing debug-output, it's helpful to have a copy of the original image around for overlaying things
         # onto it.
         orig_image = np.copy(image)
+        
+    undist = cv2.undistort(image, mtx, dist, None, mtx)
+    if do_output:
+        f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+        f.tight_layout()
+        ax1.imshow(image)
+        ax1.set_title('Original Image', fontsize=50)
+        ax2.imshow(undist)
+        ax2.set_title('Undistorted Image', fontsize=50)
+        plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+        plt.savefig(os.path.join(OUT_DIR, "2_undistorted_"+image_name+".png"))
+        plt.close()
 
     # == Use color transforms, gradients, etc., to create a thresholded binary image. ==
-    color_binary = color_gradient_pipeline(image, do_output, image_name)
+    color_binary = color_gradient_pipeline(undist, do_output, image_name)
     if do_output:
         print("         Saving progress image for "+image_name+"...")
         write_binary_image(os.path.join(OUT_DIR, "3_color-gradient_"+image_name+".png"), color_binary)
@@ -196,7 +208,6 @@ def process_image(image, do_output=False, image_name=""):
     imgshape = color_binary.shape
     imgHeight = imgshape[0]
     imgWidth = imgshape[1]
-    
 
     # === Configuration for perspective-transform source-trapezoid ===
     # trapezoidTopWidth is how wide the top of the trapezoid will be (got this by eyeballing it, and
@@ -388,7 +399,7 @@ def process_image(image, do_output=False, image_name=""):
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
     newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0])) 
     # Combine the result with the original image
-    result = cv2.addWeighted(image, 1, newwarp, 0.3, 0)
+    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
     if do_output:
         plt.imsave(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"), result)
         plt.close()
@@ -465,6 +476,7 @@ else:
     # Iterate through each of the chessboard calibration images.
     for image_number in range(1,21):
         calibration_file_name = os.path.join(CALIBRATION_DIR, "calibration"+str(image_number)+".jpg")
+        print("Trying to calibrate with image ",str(image_number))
         img = cv2.imread(calibration_file_name)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ret, corners = cv2.findChessboardCorners(gray, (NUM_X_CORNERS, NUM_Y_CORNERS), None)
@@ -483,7 +495,8 @@ else:
 
             # == Demonstrate distortion-correction ==
             undist = cv2.undistort(img, mtx, dist, None, mtx)
-            cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), img)
+            cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), undist)
+            print("Calibrated with image ",str(image_number))
             
     # Store the calibration to a pickle-file.
     calibration_data = {"mtx": mtx, "dist": dist}
