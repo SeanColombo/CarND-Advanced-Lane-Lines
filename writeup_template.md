@@ -88,13 +88,13 @@ Stacking the thresholding/gradients and s-channel values to show what they each 
 <img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.45-color_binary-straight_lines1.png" width="350">
 Combined the binary values that are shown in the prior steps:
 
-<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.50-stacked_binaries.png" width="350">
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/3.50-stacked_binaries-straight_lines1.png" width="350">
 
 Through this process, we took a full-color image and returned a binary image which has a pretty good starting point for "seeing" lines of all colors (white and yellow in our use-case) even in varying light conditions (eg: shadows). This binary image will be used for the remainder of the processing in the pipeline.
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-After the call to `color_gradient_pipeline()`, it was necessary to perform a perspective-transform on the binary image to make it so that we were in effect "looking down" onto the road.
+After the call to `color_gradient_pipeline()` (starting near line 203 of `findLanes.py`), it was necessary to perform a perspective-transform on the binary image to make it so that we were in effect "looking down" onto the road.
 
 This is accomplished by creating a trapezoidal "source" area and transforming/warping it into a rectangular destination.
 
@@ -111,6 +111,8 @@ When choosing this area, it was important to make sure that the "side" lines of 
 
 The "destination" that I projected to, was a simple rectangle filling the image.
 
+The code to create source/dest from a few configuration variables (just some trig) is here:
+
 ```pythontrapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
     trapazoidHeight = imgHeight * 0.32 # guess/test/revised to tune this number (this will be actual height of trapezoid)
     PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
@@ -120,11 +122,6 @@ The "destination" that I projected to, was a simple rectangle filling the image.
     xOffset = (trapazoidTopWidth / 2) # distance that trapezoid top points will be from vertical center-line
     theta = math.atan( trapazoidHeight / (((imgWidth/2)-xOffset)-PADDING_FROM_SIDES) )
     topLeftX = ( (imgWidth/2) - xOffset )
-    trapHeightCheck = ((topLeftX-PADDING_FROM_SIDES) * math.tan(theta))
-    if (abs(trapHeightCheck - trapazoidHeight) > 0.001): # basically a unit-test for the trig I used ;)
-        print("TRAPAZOID HEIGHT CHECK FAILED!")
-        print("TRAP HEIGHT: ",trapazoidHeight)
-        print("HEIGHT CHEK: ",trapHeightCheck)
     topLeftY = imgHeight - PADDING_FROM_BOTTOM - trapazoidHeight
     topRightX = ( (imgWidth/2) + xOffset )
     topRightY = topLeftY
@@ -146,13 +143,19 @@ Here is a perspective-transformed version of the binary source above. You'll not
 
 <img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/4.1-warped-straight_lines1.png" width="350">
 
-
-
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
+Now that the input images have been HEAVILY processed (thresholded, gradiented, perspective-transformed), the actual lane-finding could begin. Starting around line 265 of `findLanes.py`, I used a Histogram to identify the pixel-heavy areas near the bottom of the bitmap. This gave a good starting point for the sliding-widnow search since we can be fairly confident that the car should be able to at least see the lines close to the hood of the car even if the lane curves significantly.
 
-![alt text][image5]
+This histogram (showing the location of white-lines near the bottom of the prior image) has peaks in the areas where we should start the sliding-window search:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/5_histogram_straight_lines1.png" width="350">
+
+Once those high-points were found, that was used as the starting location for a sliding window search to find the lane lines. I used 9 stacked windows which were each 200 pixels wide (100px to each side of the center of the window).
+
+The points found in these sliding windows were then passed into numpy's `polyfit()` function to use the least-squares method to fit a curve to the points.  The 9 windows, the points in each window, and the left & right lane lines (yellow) can be seen in this image:
+
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/6_line_detectionstraight_lines1.png" width="350">
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
