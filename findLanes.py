@@ -15,275 +15,15 @@ This script is for advanced lane-finding for Project 4 for Udacity's Self-Drivin
 The initial flow will be based largely off of the Project 1 lanefinding video-processing, but with the
 distortion-removal, perspective-transforms, and various gradients and thresholdings we learned in Lesson 14.
 
-TODO:
-    - Figure out why this plot of points & curve-fitting is almost identical for all images even though images look very different in other steps.
-    - Re-write the lane-curvature detection (I think just rewrite to use second method but leave original there but turned off, so I can demostrate it in writeup)
-    - ? Should we use region_of_interest() fairly early in the pipeline to make all of the work considerably simpler? Would need to do this on a different run than where we generate the debug images because we'd lose a lot of context that is useful in showing what those steps are doing.
-    - Tweak things exhaustively until the lane-detection is pretty good
-        - Add sanity-check: make sure they're roughly parallel
-        - Add santiy-check: make sure the curvatures are realistic based on the highway standards
-    - Start running the code against the video to get a decent progress-point
-    - While it is processing the video, write the code to optimize lane-finding in sequential images (eg: use Line class). Should make it much faster.
-    - Now that it's processing a video (quickly) go back for another round of tweaks to ensure that the detection is good enough.
-    - Delete unused functions (I copied a bunch over from my Project 1, which I thought I'd use).
-    - Clean up code
-    - Do the writeup
+Potential future improvements for better and faster results:
+    - Add sanity-check: make sure they're roughly parallel
+    - Add santiy-check: make sure the curvatures are realistic based on the highway standards
+    - Write the code to optimize lane-finding in sequential images (eg: use Line class). Should make it much faster.
+    - Experiment with curvatures_via_convolutions() method. The spot to substitute it in, is in the code, commented out.
 """
 
-# def grayscale(img):
-    # """Applies the Grayscale transform
-    # This will return an image with only one color channel
-    # but NOTE: to see the returned image as grayscale
-    # (assuming your grayscaled image is called 'gray')
-    # you should call plt.imshow(gray, cmap='gray')"""
-    # return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    ## Or use BGR2GRAY if you read an image with cv2.imread()
-    ## return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-# def canny(img, low_threshold, high_threshold):
-    # """Applies the Canny transform"""
-    # return cv2.Canny(img, low_threshold, high_threshold)
-
-# def gaussian_blur(img, kernel_size):
-    # """Applies a Gaussian Noise kernel"""
-    # return cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
-
-def region_of_interest(img, vertices):
-    """
-    Applies an image mask.
-    
-    Only keeps the region of the image defined by the polygon
-    formed from `vertices`. The rest of the image is set to black.
-    """
-    #defining a blank mask to start with
-    mask = np.zeros_like(img)   
-    
-    #defining a 3 channel or 1 channel color to fill the mask with depending on the input image
-    if len(img.shape) > 2:
-        channel_count = img.shape[2]  # i.e. 3 or 4 depending on your image
-        ignore_mask_color = (255,) * channel_count
-    else:
-        ignore_mask_color = 255
-        
-    #filling pixels inside the polygon defined by "vertices" with the fill color    
-    cv2.fillPoly(mask, vertices, ignore_mask_color)
-    
-    #returning the image only where mask pixels are nonzero
-    masked_image = cv2.bitwise_and(img, mask)
-    return masked_image
-
-"""
-def draw_lines(img, lines, lane_min_y, lane_max_y, origImg, color=[255, 0, 0], thickness=5):
-    
-    # Separates line segments by their 
-    # slope ((y2-y1)/(x2-x1)) to decide which segments are part of the left
-    # line vs. the right line.  Then, averages the position of each of 
-    # the lines and extrapolate to the top and bottom of the lane.
-    
-    # This function draws `lines` with `color` and `thickness`.
-    # Lines are drawn on the image inplace (mutates the image).
-    # The results are opaque, transparency is applied (with weighted_img) to the
-    # results of the hough_lines function.
-    
-    
-    # If we set too small of a target area, or otherwise poorly tuned our parameters, it's
-    # possible that there were no lines found.
-    if lines is None:
-        print("There were no lines detected in this frame.")
-        return
-    
-    # Identify lines (by slope) as being left or right lane-lines, and find
-    # an average of the high and low points to create an average line for each
-    # lane.
-    numLeftLines = 0
-    lowLeftTotals = [0, 0]
-    highLeftTotals = [0, 0]
-    numRightLines = 0
-    lowRightTotals = [0, 0]
-    highRightTotals = [0, 0]
-    for line in lines:
-        for x1,y1,x2,y2 in line:
-            slope = ((y2-y1)/(x2-x1))
-            if(slope < 0): # since y value is at bottom of image, negative slope is left lane lines
-                #print("Left slope: ",slope)
-                numLeftLines += 1
-                if(x1 < x2):
-                    lowLeftTotals = list(map(operator.add, lowLeftTotals, [x1, y1]))
-                    highLeftTotals = list(map(operator.add, highLeftTotals, [x2, y2]))
-                else:
-                    lowLeftTotals = list(map(operator.add, lowLeftTotals, [x2, y2]))
-                    highLeftTotals = list(map(operator.add, highLeftTotals, [x1, y1]))
-            elif(slope > 0):
-                #print("Right slope: ",slope)
-                numRightLines += 1
-                if(x1 < x2):
-                    highRightTotals = list(map(operator.add, highRightTotals, [x1, y1]))
-                    lowRightTotals = list(map(operator.add, lowRightTotals, [x2, y2]))
-                else:
-                    highRightTotals = list(map(operator.add, highRightTotals, [x2, y2]))
-                    lowRightTotals = list(map(operator.add, lowRightTotals, [x1, y1]))
-            else:
-                # Horizontal lines (slope = 0) will be ignored.
-                continue
-                    
-    # NOTE: Sometimes at this point, we have found no lines on one or more sides. If that's the case, we just don't
-    # draw that line. One other valid approach could be to remember the previous right line and use
-    # that... until we've gone X iterations in a row without new information (then throw some exception).
-    # This would give us a reasonable approximation of the missing lines on frames that don't have one. For
-    # now we just skip drawing the line that doesn't have points.
-    if((numLeftLines ==0)  or (numRightLines == 0)):
-        print("One side's lane-line is missing from this frame.  LEFT LINES: ",numLeftLines," RIGHT LINES: ",numRightLines)
-        #saveFile = os.path.join(OUT_DIR, "missing_lines_"+str(numLeftLines)+"_"+str(numRightLines)+".jpg") # will keep overwriting the same image
-        #plt.imsave(saveFile, origImg)
-        #plt.figure()
-        #plt.imshow(origImg) # show every image in the notebook for debugging
-
-
-    # Average all lane-lines to find a representative line for each lane.
-    if(numLeftLines > 0):
-        lowLeftPoint = list(map(operator.truediv, lowLeftTotals, [numLeftLines,numLeftLines]))
-        highLeftPoint = list(map(operator.truediv, highLeftTotals, [numLeftLines,numLeftLines]))
-    if(numRightLines > 0):
-        lowRightPoint = list(map(operator.truediv, lowRightTotals, [numRightLines,numRightLines]))
-        highRightPoint = list(map(operator.truediv, highRightTotals, [numRightLines, numRightLines]))
-
-    # Extrapolate each lane-line to fill the full height of the lane.
-    # We will do this by finding the intersection between each lane-line and the lane_min_y (to find top point of line)
-    # and the intersection b/w the lane-line and lane_max_y (bottom point of the line).
-    if(numLeftLines > 0):
-        [lowLeftPoint, highLeftPoint] = extrapolateLineToMinMaxY(lowLeftPoint, highLeftPoint, lane_min_y, lane_max_y)
-    if(numRightLines > 0):
-        [lowRightPoint, highRightPoint] = extrapolateLineToMinMaxY(lowRightPoint, highRightPoint, lane_min_y, lane_max_y)
-    
-    # cv2.line requires ints and rounding is more accurate than just casting
-    if(numLeftLines > 0):
-        lowLeftPoint = [ round(elem) for elem in lowLeftPoint ]
-        lowLeftPoint = list(map(int, lowLeftPoint))
-        highLeftPoint = [ round(elem) for elem in highLeftPoint ]
-        highLeftPoint = list(map(int, highLeftPoint))
-    if(numRightLines > 0):
-        lowRightPoint = [ round(elem) for elem in lowRightPoint ]
-        lowRightPoint = list(map(int, lowRightPoint))
-        highRightPoint = [ round(elem) for elem in highRightPoint ]
-        highRightPoint = list(map(int, highRightPoint))
-
-    # Draw each averaged-out, extrapolated lane-line. Using the number of lines as the thickness
-    if(numLeftLines > 0):
-        cv2.line(img, (lowLeftPoint[0], lowLeftPoint[1]), (highLeftPoint[0], highLeftPoint[1]), color, thickness)
-    if(numRightLines > 0):
-        cv2.line(img, (lowRightPoint[0], lowRightPoint[1]), (highRightPoint[0], highRightPoint[1]), color, thickness)
-
-def extrapolateLineToMinMaxY(p1, p2, min_y, max_y):
-
-    # Given points p1 and p2, will return new points of a line that go between min_y and max_y. This
-    # will be used so that our lane-lines are extrapolated to the entire mask-area that we were looking at.
-    
-    # The return-value will be a list containing two lists: one for each point of the new line.
-
-    x1 = p1[0]
-    y1 = p1[1]
-    x2 = p2[0]
-    y2 = p2[1]
-    slope = ((y2-y1)/(x2-x1))
-    yInterceptOfLine = (y1 - (slope*x1))
-    
-    # Based on the equation for intersection of a horizontal line and another line (that I derived on paper):
-    min_x = ((min_y - yInterceptOfLine) / slope)
-    max_x = ((max_y - yInterceptOfLine) / slope)
-
-    return [ [min_x, min_y], [max_x, max_y] ]
-
-def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap, min_y, max_y):
-
-    # `img` should be the output of a Canny transform.
-        
-    # Returns an image with hough lines drawn.  This has been modified from its initial state
-    # to extrapolate those lines to extend between min_y and max_y (eg: to fill the height of
-    # the lane).
-
-    lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len, maxLineGap=max_line_gap)
-    line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
-    draw_lines(line_img, lines, min_y, max_y, img)
-    return line_img
-
-# Python 3 has support for cool math symbols. I don't advise using these :P this function was
-# provided in an Udacity lesson though.
-def weighted_img(img, initial_img, a=0.8, ß=1., λ=0.):
-    # `img` is the output of the hough_lines(), An image with lines drawn on it.
-    # Should be a blank image (all black) with lines drawn on it.
-    
-    # `initial_img` should be the image before any processing.
-    
-    # The result image is computed as follows:
-    
-    # initial_img * a + img * ß + λ
-    # NOTE: initial_img and img must be the same shape!
-
-    return cv2.addWeighted(initial_img, a, img, ß, λ)
-
-# Given an image (eg: loaded from a file or a video-frame)
-# processes it to overlay lane-lines on top of the image
-# as semi-transparent red lines. Returns the modified image.
-def process_image_OLD(image):
-    gray = grayscale(image)
-    
-    # Apply Gaussian smoothing & Canny edge detection
-    blur_gray = gaussian_blur(gray, kernel_size=3)
-
-    # Define our parameters for Canny and apply
-    edges = canny(blur_gray, low_threshold=50, high_threshold=150)
-    
-    # == MASK OUT THE TRAPAZOIDAL AREA OF INTEREST ==
-    # We're defining a trapazoidal area at the center/bottom of the
-    # screen, in which to look. triangleHeight and trapazoidTopWidth are
-    # the parameters to manually tune, to control the size of the trapazoid.
-    imgshape = image.shape
-    imgHeight = imgshape[0]
-    imgWidth = imgshape[1]
-    triangleHeight = imgHeight * 0.44 # guess/test/revised to tune this number
-    trapazoidTopWidth = imgWidth * 0.1 # how wide the top of the trapezoid will be
-    xOffset = (trapazoidTopWidth / 2) # dist that trapazoid top points will be from vertical center-line
-    # Trig to figure out the points in the trapazoid based on the configuration & image size:
-    theta = math.atan( triangleHeight / (imgWidth/2) )
-    topLeftX = ( (imgWidth/2) - xOffset )
-    topLeftY = imgHeight - (topLeftX * math.tan(theta))
-    topRightX = ( (imgWidth/2) + xOffset )
-    topRightY = topLeftY
-
-    # We have the points... use the trapezoid as a mask.
-    vertices = np.array([[
-        (0, imgHeight),
-        (topLeftX, topLeftY),
-        (topRightX, topRightY),
-        (imgWidth, imgHeight)
-    ]], dtype=np.int32)
-    masked_edges = region_of_interest(edges, vertices)
-
-    # == HOUGH TRANSFORM ==
-    # Define the Hough transform parameters - going with recommended
-    # weightings used in Lession 1:15.
-    # Make a blank the same size as our image to draw on
-    rho = 2 # distance resolution in pixels of the Hough grid
-    theta = np.pi/180 # angular resolution in radians of the Hough grid
-    threshold = 30     # minimum number of votes (intersections in Hough grid cell)
-    min_line_len = 100 #minimum number of pixels making up a line
-    max_line_gap = 160    # maximum gap in pixels between connectable line segments
-
-    # Run Hough on edge detected image
-    # Output "lines" is an array containing endpoints of detected line segments
-    line_image = hough_lines(masked_edges, rho, theta, threshold, min_line_len, max_line_gap, topLeftY, imgHeight)
-    
-    # Overlay the hough lines on the original image.
-    combined_image = weighted_img(line_image, image)
-
-    # The original image will now be returned with semitransparent lane-lines overlaid on it.
-    return combined_image
-"""    
-
-    
-    
-    
-
+# NOTE: These first 3 methods are not actively hit during the execution of the script as it stands, but they are
+# a partial implementation that could be useful for any future attempts to 
 def window_mask(width, height, img_ref, center,level):
     output = np.zeros_like(img_ref)
     output[int(img_ref.shape[0]-(level+1)*height):int(img_ref.shape[0]-level*height),max(0,int(center-width/2)):min(int(center+width/2),img_ref.shape[1])] = 1
@@ -326,7 +66,6 @@ def find_window_centroids(warped, window_width, window_height, margin):
 
     return window_centroids
     
-
 def curvatures_via_convolutions(binary_warped, do_output=False, image_name=""):
     # window settings
     window_width = 50 
@@ -369,6 +108,10 @@ def curvatures_via_convolutions(binary_warped, do_output=False, image_name=""):
         plt.close()
 
     return binary_warped
+
+    
+    
+
 
 def color_gradient_pipeline(img, do_output=False, image_name="", s_thresh=(100, 255), sx_thresh=(20, 100)):
     """
@@ -422,8 +165,7 @@ def process_image(image, do_output=False, image_name=""):
     """
     Given an image (loaded from a file or a frame of a video), 
     process it to find the lane-lines and overlay them.
-    
-    
+
     image:      the full-color image (eg: from cv2.imread()).
     # WARNING: Using mtx & dist as globals, not params since fl_image doesn't allow us to pass parameters.
     #mtx:        cameraMatrics from cv2.calibrateCamera()
@@ -433,13 +175,13 @@ def process_image(image, do_output=False, image_name=""):
     image_name: optional. Recommended when do_output is true. This will be used for debug
                 and output-filenames related to this image.
     """
-    
+
     image_name, image_extension = os.path.splitext(image_name)
     if do_output:
         # When doing debug-output, it's helpful to have a copy of the original image around for overlaying things
         # onto it.
         orig_image = np.copy(image)
-    
+
     # == Use color transforms, gradients, etc., to create a thresholded binary image. ==
     color_binary = color_gradient_pipeline(image, do_output, image_name)
     if do_output:
@@ -450,19 +192,23 @@ def process_image(image, do_output=False, image_name=""):
     # Apply a perspective transform to rectify binary image ("birds-eye view").
     # WE WILL FIND A TRAPEZOIDAL AREA OF INTEREST AND USE IT FOR THE PERSPECTIVE TRANSFORM!
     # We're defining a trapezoidal area at the center/bottom of the
-    # screen (above the hood of the car though), in which to look. trapazoidHeight and trapazoidTopWidth are
-    # the parameters to manually tune, to control the size of the trapezoid.
+    # screen (above the hood of the car though), in which to look.
     imgshape = color_binary.shape
     imgHeight = imgshape[0]
     imgWidth = imgshape[1]
-    PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
-    PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
-    # How wide the top of the trapezoid will be (got this by tweaking until "straight lines" images transformed to be parallel.
+    
+
+    # === Configuration for perspective-transform source-trapezoid ===
+    # trapezoidTopWidth is how wide the top of the trapezoid will be (got this by eyeballing it, and
+    # tweaking until "straight lines" images transformed to be parallel). Initial attempts to just get the perspective-transformed
+    # lines to be parallel, without first rendering the trapezoid lead to extremely short/wide trapezoid which was not optimal for
+    # finding lane-lines. Once the trapezoid was rendered on the test-images, it became clear how it could be tweaked for better results.
     # This was definitely guess/test/revise and may not be appropriate for all cameras.
-    # TODO: CONTINUE TO TWEAK THIS VALUE!!! 0.35 IS VERY CLOSE, BUT OVERLAY A GRID ON IT TO SEE IF IT SHOULD BE TWEAKED MORE!!!
-    # HIGHER VALUES MAKE THE TRANSFORMED LINES GO IN AT THE TOP, LOWER MAKE THEM COME BACK OUT AT THE TOP.
+    # HIGHER VALUES MAKE THE TRANSFORMED LINES GET CLOSER AT THE TOP, LOWER trapezoidTopWidth VALUES MAKE THEM DIVERGE OUT AT THE TOP.
     trapazoidTopWidth = imgWidth * 0.10 # this is the width of the top line of the trapazoid
     trapazoidHeight = imgHeight * 0.32 # guess/test/revised to tune this number (this will be actual height of trapezoid)
+    PADDING_FROM_SIDES = 50 # how many pixels from the side of camera before the left side of the trapazoid starts
+    PADDING_FROM_BOTTOM = 40 # how many pixels to shave off the bottom of the image (basically, the hood of the car - just measured it in Gimp)
 
     # Trig to figure out the points in the trapezoid based on the configuration & image size:
     xOffset = (trapazoidTopWidth / 2) # distance that trapezoid top points will be from vertical center-line
@@ -473,18 +219,15 @@ def process_image(image, do_output=False, image_name=""):
         print("TRAPAZOID HEIGHT CHECK FAILED!")
         print("TRAP HEIGHT: ",trapazoidHeight)
         print("HEIGHT CHEK: ",trapHeightCheck)
-        
     topLeftY = imgHeight - PADDING_FROM_BOTTOM - trapazoidHeight
     topRightX = ( (imgWidth/2) + xOffset )
     topRightY = topLeftY
-    # NOTE FOR WRITEUP: This area was originally way too wide & short.
     src = np.array([[
         (topLeftX, topLeftY), # top left
         (topRightX, topRightY), # top right
         (imgWidth-PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM), # bottom right
         (PADDING_FROM_SIDES, imgHeight-PADDING_FROM_BOTTOM) # bottom left
     ]], dtype=np.float32)
-    
     if do_output:
         image_copy = np.copy(orig_image)
         cv2.polylines(image_copy,  np.int32([src]),True,(255,0,0), thickness=2)
@@ -493,7 +236,7 @@ def process_image(image, do_output=False, image_name=""):
     
     # Define 4 destination points dst = np.float32([[,],[,],[,],[,]])
     # Basically fit the destination inside a square space in the image, inside of a certain amount of padding
-    PADDING = 0 # TODO: EXPERIMENT GETTING THIS TO 0
+    PADDING = 0 # it turns out that no padding was necessary. The lessons appeared to have horizontal padding but I couldn't think of any value that would provide.
     dst = np.float32([[PADDING, PADDING], # top left
                       [imgWidth-PADDING, PADDING], # top right
                       [imgWidth-PADDING, imgHeight-PADDING], # bottom right
@@ -501,7 +244,7 @@ def process_image(image, do_output=False, image_name=""):
     # Use cv2.getPerspectiveTransform() to get M, the transform matrix
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
-    # Use cv2.warpPerspective() to warp your image to a top-down view
+    # Use cv2.warpPerspective() to warp the image to a top-down view
     binary_warped = cv2.warpPerspective(color_binary, M, (imgWidth, imgHeight), flags=cv2.INTER_LINEAR)
     if do_output:
         write_binary_image(os.path.join(OUT_DIR, "4.1-warped-"+image_name+".png"), binary_warped)
@@ -509,9 +252,9 @@ def process_image(image, do_output=False, image_name=""):
     image_width = binary_warped.shape[1]
     
     # == FIND LINES ==
-    # Detect lane pixels and fit to find the lane boundary.
+    # Detect lane pixels and fit to find the lane boundary...
     # === Histogram ===
-    # STARTING POINT WAS DIRECTLY FROM LESSON 14-33. Will modify from there.
+    # STARTING POINT WAS DIRECTLY FROM LESSON 14-33. Modified from there.
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
     if do_output:
         plt.plot(histogram)
@@ -524,6 +267,7 @@ def process_image(image, do_output=False, image_name=""):
     leftx_base = np.argmax(histogram[:midpoint])
     rightx_base = np.argmax(histogram[midpoint:]) + midpoint
     
+    # === Sliding window based on locations found in Histogram ===
     # Choose the number of sliding windows
     nwindows = 9
     # Set height of windows
@@ -573,14 +317,14 @@ def process_image(image, do_output=False, image_name=""):
 
     # Extract left and right line pixel positions
     leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds] 
+    lefty = nonzeroy[left_lane_inds]
     rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds] 
+    righty = nonzeroy[right_lane_inds]
 
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
-    
+
     # === Visualizing the lane-finding ===
     # Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
@@ -598,42 +342,18 @@ def process_image(image, do_output=False, image_name=""):
         plt.savefig(os.path.join(OUT_DIR, "6_line_detection"+image_name+".png"))
         plt.close()
 
-
-    # TODO: MAKE SURE TO SKIP THE SLIDING-WINDOWS STEP ONCE WE HAVE AN IDEA OF WHERE THE LINES ARE (FOR PERFORMANCE REASONS).
-    # Some useful code & visualization is in the bottom of 14-33
-
-    # NOTE: IF THE SLIDING-WINDOWS DON'T FIT WELL ENOUGH, LESSON 14-34 HAS ANOTHER WAY TO DO IT WHICH MIGHT BE EASIER
-    # TO TWEAK INTO SOMETHING THAT WOULD FIT OUR NEEDS.
-
-
-    # TODO: REMOVE:? THIS WAS ANOTHER VISUALIZATION BEFORE THE CURVATURE... I HAVE
-    # NO IDEA WHAT PURPOSE IT COULD SERVE.
-    # Determine the curvature of the lane and vehicle position with respect to center.
-    # Plot up the points vs curve data
-    # if do_output:
-        # mark_size = 3
-        # plt.plot(leftx, ploty, 'o', color='red', markersize=mark_size)
-        # plt.plot(rightx, ploty, 'o', color='blue', markersize=mark_size)
-        # plt.xlim(0, image_width)
-        # plt.ylim(0, image_height)
-        # plt.plot(left_fitx, ploty, color='green', linewidth=3)
-        # plt.plot(right_fitx, ploty, color='green', linewidth=3)
-        # plt.gca().invert_yaxis() # to visualize as we do the images
-        # plt.savefig(os.path.join(OUT_DIR, "7_curvature"+image_name+".png"))
-        # plt.close()
-
-    # TODO: EXPERIMENT WITH THIS ALTERNATIVE METHOD FROM LESSON 14-34
+    # NOTE: IF IMPROVEMENTS WERE NEEDED, COULD EXPERIMENT WITH THIS ALTERNATIVE METHOD FROM LESSON 14-34
     #curvatures_via_convolutions(binary_warped, image_name)
-        
+
     # == DETERMINE CURVATURE ==
     # Define y-value where we want radius of curvature
     # I'll choose the maximum y-value, corresponding to the bottom of the image
     y_eval = np.max(ploty)
     left_curverad = ((1 + (2*left_fit[0]*y_eval + left_fit[1])**2)**1.5) / np.absolute(2*left_fit[0])
     right_curverad = ((1 + (2*right_fit[0]*y_eval + right_fit[1])**2)**1.5) / np.absolute(2*right_fit[0])
-    #if do_output:
-        #print("\t\tCurve radii: ", left_curverad, right_curverad)
+    if do_output:
         # Example values: 1926.74 1908.48
+        print("\t\tCurve radii: ", left_curverad, right_curverad)
 
     # == CONVERT CURVATURE FROM PIXEL-SPACE TO WORLD-SPACE ==
     # Define conversions in x and y from pixels space to meters
@@ -641,20 +361,15 @@ def process_image(image, do_output=False, image_name=""):
     xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # Fit new polynomials to x,y in world space
-    #left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fit[1]*xm_per_pix, 2)
     left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
-    #left_fit_cr = np.polyfit(ploty*ym_per_pix, leftx*xm_per_pix, 2)
-    #right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fit[1]*xm_per_pix, 2)
     right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fitx*xm_per_pix, 2)
-    #right_fit_cr = np.polyfit(ploty*ym_per_pix, rightx*xm_per_pix, 2)
     # Calculate the new radii of curvature
     left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
     right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
-    # Now our radius of curvature is in meters
-    #if do_output:
-        #print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
+    # Now the radius of curvature is in meters
+    if do_output:
         # Example values: 632.1 m    626.2 m
-   
+        print("\t\tCurve radii in meters: ", left_curverad, 'm', right_curverad, 'm')
 
     # == WARP DETECTED LANE BOUNDARIES BACK ONTO THE ORIGINAL IMAGE ==
     # Warp the detected lane boundaries back onto the original image.
@@ -676,8 +391,6 @@ def process_image(image, do_output=False, image_name=""):
     result = cv2.addWeighted(image, 1, newwarp, 0.3, 0)
     if do_output:
         plt.imsave(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"), result)
-        #plt.imshow(result)
-        #plt.savefig(os.path.join(OUT_DIR, "8_lane_lines_"+image_name+".png"))
         plt.close()
 
     # == ADD REQUIRED ANNOTATIONS (CURVATURE & DIST FROM CENTER) ONTO THE IMAGE ==
@@ -693,17 +406,12 @@ def process_image(image, do_output=False, image_name=""):
     # Need to putText right onto the image rather than using plt.text() because we need the annotations in the video-stream.
     cv2.putText(result, "Curvature radius: "+str(round(left_curverad, 2))+" meters", (10, 50), font, FONT_SCALE, FONT_COLOR, thickness=2)
     cv2.putText(result, "Car-center offset: "+str(offset_from_center)+" meters", (10,100), font, FONT_SCALE, FONT_COLOR, thickness=2)
-    # This is the same as the overall result that we output later, so removing this for now (possibly permanently).
-    # if do_output:
-        # plt.imshow(result)
-        # plt.savefig(os.path.join(OUT_DIR, "9_annotated_lane_lines_"+image_name+".png"))
-        # plt.close()
 
     return result
 
 def write_binary_image(file_name, img):
     """
-    Since we use binary images (1's, 0's a lot) but if we save them they look all-black (imwrite seems to
+    Since we use binary images (1's, 0's in a bitmap) but if we save them they look all-black (imwrite seems to
     expect them to be 0-255 still, this will output them as black and white.
     """
     output = img.copy()
@@ -724,7 +432,6 @@ if not os.path.exists(VIDEO_OUT_DIR):
     os.makedirs(VIDEO_OUT_DIR)
 if not os.path.exists(OUT_DIR):
     os.makedirs(OUT_DIR)
-
     
 # == CAMERA CALIBRATION ==
 print("Calibrating camera...")
@@ -782,8 +489,8 @@ else:
     calibration_data = {"mtx": mtx, "dist": dist}
     print("Storing calibration-data to file so that we won't have to re-calibrate on the next execution.")
     pickle.dump( calibration_data, open( CALIBRATION_FILENAME, "wb" ) )
-
 print("Done calibrating camera.")
+
 
 # Process and save each file that exists in the input directory.
 print("Processing static images...")
@@ -810,4 +517,21 @@ clip1 = VideoFileClip(video_input_filename)
 output_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
 print("Writing video file...")
 output_clip.write_videofile(video_output_filename, audio=False)
+
+# print("Processing challenge video file...")
+# video_input_filename = os.path.join(VIDEO_IN_DIR, 'challenge_video.mp4')
+# video_output_filename = os.path.join(VIDEO_OUT_DIR, 'challenge_video.mp4')
+# clip1 = VideoFileClip(video_input_filename)
+# output_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+# print("Writing video file...")
+# output_clip.write_videofile(video_output_filename, audio=False)
+
+# print("Processing harder-challenge video file...")
+# video_input_filename = os.path.join(VIDEO_IN_DIR, 'harder_challenge_video.mp4')
+# video_output_filename = os.path.join(VIDEO_OUT_DIR, 'harder_challenge_video.mp4')
+# clip1 = VideoFileClip(video_input_filename)
+# output_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+# print("Writing video file...")
+# output_clip.write_videofile(video_output_filename, audio=False)
+
 print("Done!")
