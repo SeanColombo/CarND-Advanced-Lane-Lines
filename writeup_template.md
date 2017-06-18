@@ -13,10 +13,9 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-
 [calibration_corners]: ./output_images/z1_calibration_with_corners_3.png "Calibration Corners"
-[calibration_distorted]: ./camera_cal/calibration3.jpg "Calibration Distorted"
 [calibration_undistorted]: ./output_images/z2_undistorted_chess_board_3.png "Calibration Undistorted"
+[undistorted]: ./output_images/2_undistorted_straight_lines1.png "Undistorted camera image"
 [project_video_output]: ./test_videos_output/project_video.mp4 "Project Video Output"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
@@ -45,10 +44,6 @@ I assumed that all images would have 9 corners detected horizontally and 6 detec
 
 I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result: 
 
-Distorted (original):
-![Camera Calibration image - original][calibration_distorted]
-
-Undistorted:
 ![Camera Calibration undistortion][calibration_undistorted]
 
 All of the successful corner-detection and un-distortions were saved to the `/output_images` directory for reference.
@@ -57,12 +52,15 @@ This calibration step took about 10-12 seconds every time I ran the script. Sinc
 
 ### Pipeline (single images)
 
-+++++++++++++++++++++++++++++++++++++++++++++++TODO: YOU ARE HERE IN CREATING THE SUMMARY!
+The pipeline for processing a single image (or frame of a video) is included in the function `process_image()` defined near line 164 of `[./findLanes.py](./findLanes.py)`.  There are some optional debugging parameters which allowed me to output a very detailed flow step-by-step for each of the static images, while skipping the intermediate-output when processing video-frames. This made it very easy to itereate on the development of the lane-detection, while working with the static images.
 
 #### 1. Provide an example of a distortion-corrected image.
 
-To demonstrate this step, I will describe how I apply the distortion correction to one of the test images like this one:
-![alt text][image2]
+The undistortion is achieved by using the `cv2.undistort()` function and passing in the `mtx` and `dist` values that were obtained from the camera-calibration steps described above.
+
+Interestingly, I managed to do the entire project forgetting to apply the undistortion values to the images in `process_image()`. The entire pipeline worked fine without the undistortion-step but that probably only implies that the camera's distortion is not that extreme.  I have now corrected the pipeline and you can see the small but important effect of undistortion in this example (look near the bottom corners to see the difference):
+
+![undistorted camera image][undistorted]
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
