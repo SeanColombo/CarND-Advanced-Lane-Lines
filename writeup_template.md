@@ -176,7 +176,7 @@ Starting around line 385 of `findLanes.py`, I warped the detected lane-lines bac
 
 In addition to rendering this area onto the undistorted versions of the test-images, I also applied the required annotations for the radius of curvature, and the estimate of how far (in world-space) the center of the car was from the center of the lane (negative numbers indicate that the car is left-of-center, positive numbers indicate that the car is right-of-center).
 
-<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/straight_lines1.png" width="350">
+<img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/straight_lines1.jpg" width="350">
 
 ### Pipeline (video)
 
@@ -190,9 +190,9 @@ The detection performs quite well. The only visible shortcoming is that the lane
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Each segment above was accompanied by descriptions of areas where I struggled (eg: the initial Area of Interest being way too short and wide) and things I completely messed up (forgetting to unwarp the images until after I had the entire pipeline working), but there are things that I did NOT yet do, that could still be done to improve this project.
+In addition to the debug images above, in the `output_images` directory, there are images for ALL of the static test images which correspond to the images used in this writeup. Having this diverse test-set easily visible during development did a great job of highlighting any weaknesses or bugs very early on so that I didn't go down the wrong path very often.
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.
+Each segment above was accompanied by descriptions of areas where I struggled (eg: the initial Area of Interest being way too short and wide) and things I completely messed up (forgetting to unwarp the images until after I had the entire pipeline working), but there are things that I did NOT yet do, that could still be done to improve this project.
 
 While making the project, I kept a running list of all of the things I absolutely needed to do, as well as improvements sorted by their expected level of impact. Then I just kept improving it until the results exceeded the requirements.  Here are some remaining areas for improvement:
 
