@@ -495,7 +495,16 @@ else:
 
             # == Demonstrate distortion-correction ==
             undist = cv2.undistort(img, mtx, dist, None, mtx)
-            cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), undist)
+            f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+            f.tight_layout()
+            ax1.imshow(img)
+            ax1.set_title('Original Image', fontsize=50)
+            ax2.imshow(undist)
+            ax2.set_title('Undistorted Image', fontsize=50)
+            plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+            plt.savefig(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"))
+            plt.close()
+            #cv2.imwrite(os.path.join(OUT_DIR, "z2_undistorted_chess_board_"+str(image_number)+".png"), undist)
             print("Calibrated with image ",str(image_number))
             
     # Store the calibration to a pickle-file.
