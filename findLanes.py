@@ -153,12 +153,12 @@ def color_gradient_pipeline(img, do_output=False, image_name="", s_thresh=(100, 
     # Just for seeing the different contributions in different colors
     color_binary = np.dstack(( np.zeros_like(sxbinary), sxbinary, s_binary))
     if do_output:
-        write_binary_image(os.path.join(OUT_DIR, "3.45-stacked_binaries-"+image_name+".png"), color_binary)
+        write_binary_image(os.path.join(OUT_DIR, "3.45-color_binary-"+image_name+".png"), color_binary)
     
     combined_binary = np.zeros_like(sxbinary)
     combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
     if do_output:
-        write_binary_image(os.path.join(OUT_DIR, "3.50-color_binary-"+image_name+".png"), combined_binary)
+        write_binary_image(os.path.join(OUT_DIR, "3.50-stacked_binaries-"+image_name+".png"), combined_binary)
     return combined_binary
     
 def process_image(image, do_output=False, image_name=""):
