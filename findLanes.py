@@ -22,6 +22,8 @@ Potential future improvements for better and faster results:
     - Experiment with curvatures_via_convolutions() method. The spot to substitute it in, is in the code, commented out.
 """
 
+prior_pts = None
+
 # NOTE: These first 3 methods are not actively hit during the execution of the script as it stands, but they are
 # a partial implementation that could be useful for any future attempts to 
 def window_mask(width, height, img_ref, center,level):
@@ -161,7 +163,7 @@ def color_gradient_pipeline(img, do_output=False, image_name="", s_thresh=(100, 
         write_binary_image(os.path.join(OUT_DIR, "3.50-stacked_binaries-"+image_name+".png"), combined_binary)
     return combined_binary
     
-def process_image(image, do_output=False, image_name=""):
+def process_image(image, do_output=False, image_name="", use_shape_matching=True):
     """
     Given an image (loaded from a file or a frame of a video), 
     process it to find the lane-lines and overlay them.
@@ -174,7 +176,12 @@ def process_image(image, do_output=False, image_name=""):
                 for the static images but not for the videos (since there are a ton of frames).
     image_name: optional. Recommended when do_output is true. This will be used for debug
                 and output-filenames related to this image.
+    use_shape_matching:  if True, then this method will attempt to compare the polygon found to the
+                        previous polygon to see if they are similar. If they are highly dissimilar, then
+                        the prior polygon will be used. This prevents individual bad frames from being used.
+                        It is recommended to use this for video processing but not for static images.
     """
+    global prior_pts # have to declare it global since we will be assigning to it
 
     image_name, image_extension = os.path.splitext(image_name)
     if do_output:
@@ -389,9 +396,24 @@ def process_image(image, do_output=False, image_name=""):
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
+    difference = diff_left = diff_right = 0.0 # this init will only matter on the first frame
     pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
     pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
     pts = np.hstack((pts_left, pts_right))
+    if use_shape_matching:
+        # Use shape-matching to discard any drastically-different polygons. If a polygon is very
+        # different, then it is likely an error so we'll just re-use the prior polygon for this
+        # extra frame.
+        # If the sum of the differences of left and right lines are greater than MAX_DIFFERENCE,
+        # then the frame's points will be discarded and the prior-frame will be used.
+        MAX_DIFFERENCE = 0.10 # if this is too low, then real changes could be missed and we'll just lose track of the lane
+        if prior_pts is not None:
+            difference = cv2.matchShapes(np.int_(prior_pts), np.int_(pts), 1, 0.0)
+            if difference > MAX_DIFFERENCE:
+                # Discard this frame's values and use the prior values for one more frame.
+                pts = prior_pts
+                print("FRAME WAS TOO DIFFERENT... SKIPPED!  Diff: ",difference)
+        prior_pts = pts
 
     # Draw the lane onto the warped blank image
     cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
@@ -409,14 +431,18 @@ def process_image(image, do_output=False, image_name=""):
     font = cv2.FONT_HERSHEY_SIMPLEX
     FONT_SCALE = 1.0
     FONT_COLOR = (255,0,0)
-    # Find left-X/right-X of the bottom row of the image
-    center_of_car = leftx[len(leftx)-1] + ((rightx[len(rightx)-1] - leftx[len(leftx)-1])/2)
-    center_of_image = (image_width / 2)
-    offset_from_center = (center_of_car - center_of_image) * xm_per_pix # find the offset-from-center in meters
+    # Find left-X/right-X of the 10 from bottom row of the image's area-of-interest
+    center_of_car = leftx[len(leftx)-10] + ((rightx[len(rightx)-10] - leftx[len(leftx)-10])/2)
+    #center_of_car = (image_width / 2)
+    center_of_lane = int((pts_right[0][10][0] - pts_left[0][10][0])/2.)+pts_left[0][10][0]
+    offset_from_center = (center_of_car - center_of_lane) * xm_per_pix # find the offset-from-center in meters
     offset_from_center = round(offset_from_center, 2)
+
     # Need to putText right onto the image rather than using plt.text() because we need the annotations in the video-stream.
     cv2.putText(result, "Curvature radius: "+str(round(left_curverad, 2))+" meters", (10, 50), font, FONT_SCALE, FONT_COLOR, thickness=2)
     cv2.putText(result, "Car-center offset: "+str(offset_from_center)+" meters", (10,100), font, FONT_SCALE, FONT_COLOR, thickness=2)
+    if use_shape_matching:
+        cv2.putText(result, "Diff via shape matching: "+str(difference), (10,150), font, FONT_SCALE, FONT_COLOR, thickness=2)
 
     return result
 
@@ -443,7 +469,7 @@ if not os.path.exists(VIDEO_OUT_DIR):
     os.makedirs(VIDEO_OUT_DIR)
 if not os.path.exists(OUT_DIR):
     os.makedirs(OUT_DIR)
-    
+
 # == CAMERA CALIBRATION ==
 print("Calibrating camera...")
 
@@ -523,7 +549,7 @@ for file_index in range(len(files)):
     # All of the image-processing is done in this call
     print("     Processing "+fullFilePath+"...")
     image = mpimg.imread(fullFilePath)
-    image = process_image(image, do_output=True, image_name=files[file_index])
+    image = process_image(image, do_output=True, image_name=files[file_index], use_shape_matching=False)
     
     # Take the processed image and save it to the output directory.
     saveFile = os.path.join(OUT_DIR, files[file_index])
