@@ -159,6 +159,8 @@ The points found in these sliding windows were then passed into numpy's `polyfit
 
 <img src="https://raw.githubusercontent.com/SeanColombo/CarND-Advanced-Lane-Lines/master/output_images/6_line_detectionstraight_lines1.png" width="350">
 
+Originally, there were occasional frames that were fairly erroneous due to extreme shadows, road height changes on bridges, etc.. To avoid this situation, we used `cv2.matchShapes()` and discarded any lane-detections that were found to be significantly different from the prior frame. In these cases, we continue to use our prior polygons until a more reasonable delta is obtained. This has a "smoothing" effect which removes very messed up frames and will also have a more smoothed-out assumption in cases where the car is bouncing up and down after going on and off of the bridges in the project video.
+
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
 Starting around line 359 of `findLanes.py`, I calculated the radius of curvature of the lane using the [radius-of-curvature forumula](http://www.intmath.com/applications-differentiation/8-radius-curvature.php). This resulted in a pixel-space number which I then converted to world-space using the hints provided for this camera:
@@ -169,6 +171,8 @@ Starting around line 359 of `findLanes.py`, I calculated the radius of curvature
 ```
 
 The curvature is a huge radius on relatively straight lanes and smaller on very curvy portions of the road.
+
+In addition to the curvature, the car's distance from the center of the lane also had to be calculated. Originally, I made the error of calculating the distance from the center of the **image** but that was obviously incorrect. Now the center of the lane is calculated from the 10th-from-bottom-row of the green polygon, and compared to the center of the car.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
